@@ -30,58 +30,6 @@ export function opStepVis(opName, lhs, lhs2, rhs, annotations) {
   }
 }
 
-
-export function projection(opid, lineageData, addOns) {
-  let info = lineageData.op[opid]
-  let lhsObj = lineageData.results[lineageData.op[opid][0]]
-  let rhsObj = lineageData.results[opid]
-  let colLineage = lineageData.col[opid]
-
-
-  addOns.desc = "Projection - keeping the fields: " + info.str
-  addOns.opType = "projectionOp"
-  addOns.tableCaptions.lhs = lineageData.info[lineageData.op[opid][0]].name
-  addOns.tableCaptions.rhs = info.name
-
-  let annotations = []
-
-  // the columns to make arrows to
-  colLineage.forEach((inputColIdxs, oCol) => {
-    inputColIdxs.forEach((iCol) => {
-      annotations.push({
-        type: "arrow",
-        from: { table: "lhs", row: "header", col: iCol },
-        to: { table: "rhs", row: "header", col: oCol }
-      })
-    })
-  })
-
-  // Cross out rejected columns
-  R.times((i) => {
-    if (colLineage.flat().includes(i)) return;
-    annotations.push({
-      type: "crossout", 
-      target: {
-        table: "lhs", 
-        row: "all", 
-        col: i
-      }
-    })
-  }, lhsObj.columns.length)
-
-  // color the rows
-  R.times((row) => {
-    annotations.push({
-      type:"color_set", 
-      set: [
-        {table: "lhs", row, col: "all"},
-        {table: "rhs", row, col: "all"}
-      ]})
-  },  rhsObj.rows.length)
-
-  return opStepVis(info.name, makeWstTable(lhsObj), null, makeWstTable(rhsObj), annotations )
-}
-
 function addExprAnnotations(opid, lineageData, annotations) {
   // the columns to outline
   // indexes of attributes in predicate
@@ -96,20 +44,107 @@ function addExprAnnotations(opid, lineageData, annotations) {
   })
 }
 
+function addProjectionAnnotations(opid, lhsObj, lineageData, annotations) {
+    let colLineage = lineageData.col[opid]
+      // the columns to make arrows to
+      colLineage.forEach((inputColIdxs, oCol) => {
+        inputColIdxs.forEach((iCol) => {
+          annotations.push({
+            type: "arrow",
+            from: { table: "lhs", row: "header", col: iCol },
+            to: { table: "rhs", row: "header", col: oCol }
+          })
+        })
+      })
 
-export function hashjoin(opid, lineageData, addOns) {
-  let lhsObj = lineageData.results[lineageData.op[opid][0]]
-  let lhs2Obj = lineageData.results[lineageData.op[opid][1]]
+      // Cross out rejected columns
+      R.times((i) => {
+        if (colLineage.flat().includes(i)) return;
+        annotations.push({
+          type: "crossout", 
+          target: {
+            table: "lhs", 
+            row: "all", 
+            col: i
+          }
+        })
+      }, lhsObj.columns.length)
+}
+
+
+function addLineageAnnotations(opid, lineageObj, annotations, input_size) {
+  if (!lineageObj) return;
+  lineageObj[0][1].forEach(([oid, iid]) => {
+    let lRow = {table: "lhs", row: iid, col: "all"}
+    let rRow = {table: "rhs", row: oid, col: "all"}
+    annotations.push({type:"color_set", set: [lRow, rRow]})
+    annotations.push({type: "arrow", from: lRow, to: rRow})
+  })
+  
+  let iids = lineageObj[0][1].map(([oid, iid]) => iid)
+
+  R.times((row) => {
+    if (!iids.includes(row))
+      annotations.push({
+        type: "crossout",
+        target: { table: "lhs", row, col: "all" }
+      })
+  }, input_size)
+
+}
+// info:
+//     str: str, name: str, schema: [str], id: str, depth: int
+// op:
+//    str: [str]
+// results:
+//    str: [[srcidx, [oid, iid]]]
+export function projection(opid, lineageData, addOns) {
+  console.log("projection: ", opid, lineageData)
+  let info = lineageData.info[opid]
+  let child_opid = lineageData.op[opid][0]
+  let lhsObj = lineageData.results[child_opid]
+  let rhsObj = lineageData.results[opid]
+  let colLineage = lineageData.col[opid]
+
+  console.log(child_opid, lhsObj, rhsObj, colLineage)
+
+  addOns.desc = "Projection - keeping the fields: " + info.schema
+  addOns.opType = "projectionOp"
+  addOns.tableCaptions.lhs = "output of: " + child_opid
+
+  let annotations = []
+
+  addProjectionAnnotations(opid, lhsObj, lineageData, annotations);
+
+  // color the rows
+  R.times((row) => {
+    annotations.push({
+      type:"color_set", 
+      set: [
+        {table: "lhs", row, col: "all"},
+        {table: "rhs", row, col: "all"}
+      ]})
+  },  rhsObj.rows.length)
+
+  return opStepVis(info.name, makeWstTable(lhsObj), null, makeWstTable(rhsObj), annotations )
+}
+
+
+export function join(opid, lineageData, addOns) {
+  let lchild_opid = lineageData.op[opid][0];
+  let rchild_opid = lineageData.op[opid][1];
+  let lhsObj = lineageData.results[lchild_opid]
+  let lhs2Obj = lineageData.results[rchild_opid]
   let rhsObj = lineageData.results[opid]
   let lineageObj = lineageData.row[opid]
   let colLineage = lineageData.col[opid]
   let info = lineageData.info[opid]
 
+  console.log("join", opid, rhsObj)
   addOns.desc = "matches up tuples of both tables based on condition: " + info.str
-  addOns.opType = "hashJoinOp"
-  addOns.tableCaptions.lhs = lineageData.info[lineageData.op[opid][0]].name
-  addOns.tableCaptions.lhs2 = lineageData.info[lineageData.op[opid][1]].name
-  addOns.tableCaptions.rhs = info.name
+  addOns.opType = "joinOp"
+  addOns.tableCaptions.lhs = lineageData.info[lchild_opid].name
+  addOns.tableCaptions.lhs2 = lineageData.info[rchild_opid].name
 
   let annotations = []
 
@@ -117,46 +152,71 @@ export function hashjoin(opid, lineageData, addOns) {
   addExprAnnotations(opid, lineageData, annotations)
 
 
-  // lineage is [ (srcid, [(oid, iid),...]), .. ]
-  // needto find for each iid in source 0, all iids in source 1 that share
-  // the same output oid
-  console.log(lineageObj)
-  let leftPairs = lineageObj[0][1]
-  let rightPairs = lineageObj[1][1]
-  R.zip(leftPairs, rightPairs).forEach(([[loid, liid], [roid, riid]]) => {
-    let lhsRow = {table: "lhs", col: "all", row: liid },
-      lhs2Row = {table: "lhs2", col: "all", row: riid },
-      rhsRow = {table: "rhs", col: "all", row: loid }
+  if (lineageObj) {
+    // lineage is [ (srcid, [(oid, iid),...]), .. ]
+    // needto find for each iid in source 0, all iids in source 1 that share
+    // the same output oid
+    let leftPairs = lineageObj[0][1]
+    let rightPairs = lineageObj[1][1]
 
-    annotations.push({
-      type:"color_set", 
-      set: [ lhsRow, lhs2Row, rhsRow ]
-    })
-    annotations.push({
-      type: "arrow", 
-      from: lhsRow, 
-      to: lhs2Row
-    })
-  })
+    R.zip(leftPairs, rightPairs).forEach(([[loid, liid], [roid, riid]]) => {
+      let lhsRow = {table: "lhs", col: "all", row: liid },
+        lhs2Row = {table: "lhs2", col: "all", row: riid },
+        rhsRow = {table: "rhs", col: "all", row: loid }
 
+      annotations.push({
+        type:"color_set", 
+        set: [ lhsRow, lhs2Row, rhsRow ]
+      })
+      annotations.push({
+        type: "arrow", 
+        from: lhsRow, 
+        to: lhs2Row
+      })
+    })
+  }
   let lhs = makeWstTable(lhsObj),
-    lhs2 = makeWstTable(lhs2Obj),
-    rhs = makeWstTable(rhsObj)
-
+    lhs2 = makeWstTable(lhs2Obj);
+  let rhs = null;
+  if (rhsObj) {
+    rhs = makeWstTable(rhsObj);
+  }
   return opStepVis(info.name, lhs, lhs2, rhs, annotations )
+}
+
+export function simple(opid, lineageData, addOns) {
+  let child_opid = lineageData.op[opid][0];
+  let lhs = makeWstTable(lineageData.results[child_opid])
+  let rhs = makeWstTable(lineageData.results[opid])
+  let info = lineageData.info[opid]
+
+  addOns.desc = info.str
+  addOns.opType = "simpleAggs"
+  addOns.tableCaptions.lhs = lineageData.info[child_opid].name
+
+  let annotations = []
+  
+  // color the rows
+  R.times((row) => {
+      let lrow = { table: "lhs", col: "all", row: row },
+        rrow = { table: "rhs", col: "all", row: 0 }
+      annotations.push({ type: "arrow", from: lrow, to: rrow })
+  },  lhs.data.length)
+
+  return opStepVis(info.name, lhs, null, rhs, annotations )
 }
 
 
 export function groupby(opid, lineageData, addOns) {
-  let lhs = makeWstTable(lineageData.results[lineageData.op[opid][0]])
+  let child_opid = lineageData.op[opid][0];
+  let lhs = makeWstTable(lineageData.results[child_opid])
   let rhs = makeWstTable(lineageData.results[opid])
   let lineageObj = lineageData.row[opid]
   let info = lineageData.info[opid]
 
   addOns.desc = "Groups rows and merges their data: " + info.str
   addOns.opType = "hashGroupOp"
-  addOns.tableCaptions.lhs = lineageData.info[lineageData.op[opid][0]].name
-  addOns.tableCaptions.rhs = info.name
+  addOns.tableCaptions.lhs = lineageData.info[child_opid].name
 
   let annotations = []
   let colors = R.times((i) => {
@@ -180,76 +240,87 @@ export function groupby(opid, lineageData, addOns) {
 }
 
 export function filter(opid, lineageData, addOns) {
-  let lhs = makeWstTable(lineageData.results[lineageData.op[opid][0]])
+  console.log("filter", lineageData)
+  let child_opid = lineageData.op[opid][0];
+  let lhs = makeWstTable(lineageData.results[child_opid])
   let rhs = makeWstTable(lineageData.results[opid])
   let lineageObj = lineageData.row[opid]
   let info = lineageData.info[opid]
+  console.log("info ", info)
   
   addOns.desc = "Filter - only keeping tuples meeting the condition: " + info.str
   addOns.opType = "filterOp"
-  addOns.tableCaptions.lhs = lineageData.info[lineageData.op[opid][0]].name
-  addOns.tableCaptions.rhs = info.name
+  addOns.tableCaptions.lhs = "output of: " + lineageData.op[opid][0]
 
   let annotations = []
   let boxSet = []
 
   // the columns to outline
   // indexes of attributes in predicate
-  addExprAnnotations(opid, lineageData, annotations)
-
-  lineageObj[0][1].forEach(([oid, iid]) => {
-    let lRow = {table: "lhs", row: iid, col: "all"}
-    let rRow = {table: "rhs", row: oid, col: "all"}
-    annotations.push({type:"color_set", set: [lRow, rRow]})
-    annotations.push({type: "arrow", from: lRow, to: rRow})
-  })
-  
-  let iids = lineageObj[0][1].map(([oid, iid]) => iid)
-
-  R.times((row) => {
-    if (!iids.includes(row))
-      annotations.push({
-        type: "crossout",
-        target: { table: "lhs", row, col: "all" }
-      })
-  }, lhs.data.length)
-
+  //addExprAnnotations(opid, lineageData, annotations)
+  let input_size = lhs.data.length;
+  addLineageAnnotations(opid, lineageObj, annotations, input_size)
   annotations = boxSet.concat(annotations)
   return opStepVis(info.name, lhs, null, rhs, annotations )
 }
 
+// info:
+//     str: str, name: str, schema: [str], id: str, depth: int
+// op:
+//    str: [str]
+// results:
+//    str: [[srcidx, [oid, iid]]]
 export function scan(opid, lineageData, addOns) {
-  let lhs = makeWstTable(lineageData.results[opid])
-  let rhs = lhs;
-  let info = lineageData.info[opid]
+  console.log("scan", lineageData)
+  let info = lineageData.info[opid];
   let lineageObj = lineageData.row[opid]
-  addOns.desc = "Scans all the tuples of the input table " + info.str
-  addOns.opType = "scanOp"
-  addOns.tableCaptions.lhs = info.name
-  addOns.tableCaptions.rhs = info.name
-
   let annotations = []
-  R.times((row) => {
-    let lrow = {table: "lhs", row, col: "all"}
-    let rrow = {table: "rhs", row, col: "all"}
-    annotations.push({type:"color_set", set: [lrow, rrow]})
-    annotations.push({type: "arrow", from: lrow, to: rrow})
-  }, rhs.data.length)
+  let lhsObj = lineageData.results[opid+"input"]
+  let rhsObj = lineageData.results[opid]
+  if (!lhsObj)
+    lhsObj = rhsObj;
+  let lhs = makeWstTable(lhsObj)
+  let rhs = makeWstTable(rhsObj)
+  
+  addOns.opType = "scanOp"
+  addOns.tableCaptions.lhs = "table: " + info.table_name
+  
+  if (lineageObj) {
+    addOns.desc = "Scans the tuples of the input table with filter pushed down" + info.str
+    let input_size = lhs.data.length;
+    addLineageAnnotations(opid, lineageObj, annotations, input_size)
+  } else {
+    addOns.desc = "Scans all the tuples of the input table " + info.str
+    R.times((row) => {
+      let lrow = {table: "lhs", row, col: "all"}
+      let rrow = {table: "rhs", row, col: "all"}
+      annotations.push({type:"color_set", set: [lrow, rrow]})
+      annotations.push({type: "arrow", from: lrow, to: rrow})
+    }, rhs.data.length)
+  }
+
+  if (opid in lineageData.col) {
+    addProjectionAnnotations(opid, lhsObj, lineageData, annotations);
+  }
+
 
   return opStepVis(info.name, lhs, null, rhs, annotations )
 }
 
 
 export function query(opid, lineageData, addOns) {
-  let lhs = makeWstTable(lineageData.results[opid])
+  let child_opid = lineageData.op[opid][0]
+  let lhs = makeWstTable(lineageData.results[child_opid])
   let rhs = lhs;
   let info = lineageData.info[opid]
   addOns.opType = "queryOp"
+  addOns.desc = "Query" + lineageData.qstr
   addOns.tableCaptions.lhs = info.name
-  return opStepVis(info.name, lhs, null, null, [])
+  let annotations = []
+  return opStepVis(info.name, lhs, null, null, annotations)
 }
 
-class Lineage{
+class Lineage {
   lineageData;
 
   constructor(lineageData) {

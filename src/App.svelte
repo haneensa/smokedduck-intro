@@ -10,9 +10,9 @@
   import { pyodide } from "./pyodide"
   import {generateUUID} from "./guid"
   import { ConvexHttpClient } from "convex/browser";
-  import clientConfig from "../convex/_generated/clientConfig";
+  const convex = new ConvexHttpClient(import.meta.env.VITE_CONVEX_URL);
 
-  const convex = new ConvexHttpClient(clientConfig)
+
   window.convex = convex;
   const sessionID = generateUUID()
   const addStat = convex.mutation("addStat")

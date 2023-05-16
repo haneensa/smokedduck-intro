@@ -2,8 +2,9 @@
   //import { createVisualizer, addOn } from "./wst.js"
   import {
     projection,
-    hashjoin,
+    join,
     groupby,
+    simple,
     filter,
     scan,
     query
@@ -13,13 +14,23 @@
   import { selectedOpids, lineageData } from "./stores.ts"
 
   const functions = {
-    Project: projection,
-    HashJoin: hashjoin,
-    ThetaJoin: hashjoin,
-    GroupBy: groupby,
-    Filter: filter,
-    Scan: scan,
-    Collect: query
+    PROJECTION: projection,
+    HASH_JOIN: join,
+    PIECEWISE_MERGE_JOIN: join,
+    BLOCKWISE_NL_JOIN: join,
+    NESTED_LOOP_JOIN: join,
+    DELIM_JOIN: join,
+    ThetaJoin: join,
+    HASH_GROUP_BY: groupby,
+    PERFECT_HASH_GROUP_BY: groupby,
+    SIMPLE_AGGREGATE: simple,
+    FILTER: filter,
+    LIMIT: filter,
+    ORDER_BY: filter,
+    SEQ_SCAN: scan,
+    CHUNK_SCAN: scan,
+    DELIM_SCAN: scan,
+    root: query
   }
 
   let errmsg = null;
@@ -40,7 +51,7 @@
       tableCaptions: {
         lhs: null, // no lhs2 for now
         lhs2: null,
-        rhs: null,
+        rhs: "",
       }
     }
    setupFunction = functions[info.name] 
