@@ -91,3 +91,13 @@ Lineage: {
 
 
 ```
+
+Setting up the flask server w/ SmokedDuck:
+1. Create a new virtual environment `python3 -m venv venvDemo`
+2. Access it with `source venvDemo/bin/activate`
+3. Install python dependencies with `pip install -r requirements.txt` - after this only SmokedDuck needs to be installed
+4. Pull https://github.com/reallocf/duckdb into a new directory and enter it
+5. Check out the branch `lineage_capture`
+6. Enter the python build directory with `cd tools/pythonpkg`
+7. Execute `python setup.py install`
+8. Now, from the root of this directory, you can run the backend with `flask --app app run`

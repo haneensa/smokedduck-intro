@@ -11,8 +11,10 @@
   import {generateUUID} from "./guid"
   import { ConvexHttpClient } from "convex/browser";
   const convex = new ConvexHttpClient(import.meta.env.VITE_CONVEX_URL);
-
-
+  // Charlie needs to uncomment the below lines and comment out the one line above TODO which is best?
+  // import clientConfig from "../convex/_generated/clientConfig";
+  //
+  // const convex = new ConvexHttpClient(clientConfig)
   window.convex = convex;
   const sessionID = generateUUID()
   const addStat = convex.mutation("addStat")
@@ -54,13 +56,28 @@ GROUP BY a`;
   function getQueryLineage(q) {
     let code = `json_str_for_vis("""${q}""")`
     console.log(code)
+    const url = 'http://127.0.0.1:5000/sql';
+    const data = {'query': q};
+
     try {
-      let lineageJson = pyodide.pyodide.runPython(code)
-      let ret = JSON.parse(lineageJson)
-      $: errmsg = null;
-      return ret;
-    } catch(e) {
-      $: errmsg = e;
+      return fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      }).then(response => {
+        if (response.ok) {
+          $: errmsg = null;
+          return response.text();
+        } else {
+          console.error('Error:', response.status);
+          $: errmsg = 'Error: ' + response.status;
+        }
+      });
+    } catch (error) {
+      console.error('Error:', error);
+      $: errmsg = 'Error: ' + error;
     }
   }
 
