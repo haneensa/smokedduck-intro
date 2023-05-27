@@ -5,38 +5,24 @@
   import LineageDiagram from "./LineageDiagram.svelte"
   import QueryPicker from "./QueryPicker.svelte"
   import Bug from "./Bug.svelte"
-  import * as foo from "./assets/lineage.json"
+  import * as initial_lineage from "./assets/lineage.json"
   import { lineageData, selectedOpids } from "./stores.ts"
-  import { pyodide } from "./pyodide"
   import {generateUUID} from "./guid"
-  import { ConvexHttpClient } from "convex/browser";
-  const convex = new ConvexHttpClient(import.meta.env.VITE_CONVEX_URL);
-  // Charlie needs to uncomment the below lines and comment out the one line above TODO which is best?
-  // import clientConfig from "../convex/_generated/clientConfig";
-  //
-  // const convex = new ConvexHttpClient(clientConfig)
-  window.convex = convex;
   const sessionID = generateUUID()
-  const addStat = convex.mutation("addStat")
 
-
+  $lineageData = initial_lineage;
 
   let msgEl = document.getElementById("msg");
   let queryParams = new URLSearchParams(window.location.search)
-  $lineageData = foo;
-
+  const url = 'http://127.0.0.1:5000';
   let errmsg = null;
   let qplanEl;
   let editorEl;
   let csvEl;
-  let permalink = "";
   let newTableName;
   let schemas = [];
   let addedCSVs = [];
-  let q = queryParams.get("q") ?? `SELECT a, sum(b+2) * 2 as c 
-FROM data, (SELECT a*b as x, c, d  FROM data) AS d2 
-WHERE data.b = d2.x
-GROUP BY a`;
+  let q = queryParams.get("q") ?? ``;
   let csv = `a,b,c,d,e,f,g
 0,0,0,0,a,2,c
 1,1,1,0,b,4,d
@@ -49,18 +35,37 @@ GROUP BY a`;
 8,3,0,0,c,18,c
 9,4,1,0,d,20,d`;
 
-  $: {
-    permalink = `https://cudbg.github.io/sqltutor/?q=${encodeURI(q)}&csvs=${encodeURI(JSON.stringify(addedCSVs))}`;
-  }
-
-  function getQueryLineage(q) {
-    let code = `json_str_for_vis("""${q}""")`
-    console.log(code)
-    const url = 'http://127.0.0.1:5000/sql';
-    const data = {'query': q};
-
+  function getSchema() {
     try {
-      return fetch(url, {
+      return fetch(url+"/schema", {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+      }).then(response => {
+        if (response.ok) {
+          $: errmsg = null;
+          return response.json()
+        } else {
+          console.error('Error:', response.status);
+          $: errmsg = 'Error: ' + response.status;
+        }
+      }).then(jsonData => {
+        // Process the JSON data as needed
+        // For example, you can access properties using jsonData.propertyName
+        console.log("schema", jsonData)
+        $: schemas = jsonData;
+      })
+    } catch (error) {
+      console.error('Error:', error);
+      $: errmsg = 'Error: ' + error;
+    }
+  }
+  
+  function RegisterCSV(table_name, csv) {
+    const data = {'name': table_name, 'csv':csv};
+    try {
+      return fetch(url+"/csv", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -69,12 +74,42 @@ GROUP BY a`;
       }).then(response => {
         if (response.ok) {
           $: errmsg = null;
-          return response.text();
+          return response.json();
         } else {
           console.error('Error:', response.status);
           $: errmsg = 'Error: ' + response.status;
         }
-      });
+      }).then(jsonData => {
+        return jsonData; // Return the JSON data to the caller
+      })
+    } catch (error) {
+      console.error('Error:', error);
+      $: errmsg = 'Error: ' + error;
+    }
+  }
+
+  function getQueryLineage(q) {
+    const data = {'query': q};
+    try {
+      return fetch(url+"/sql", {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      }).then(response => {
+        if (response.ok) {
+          $: errmsg = null;
+          return response.json();
+        } else {
+          console.error('Error:', response.status);
+          $: errmsg = 'Error: ' + response.status;
+        }
+      }).then(jsonData => {
+        $lineageData = jsonData;
+        console.log("lineageData", lineageData);
+        return jsonData; // Return the JSON data to the caller
+      })
     } catch (error) {
       console.error('Error:', error);
       $: errmsg = 'Error: ' + error;
@@ -88,7 +123,7 @@ GROUP BY a`;
           $: errmsg = "CSV too large for the visualizer to be useful.  Please limit table to 15 rows."
           return
         }
-        pyodide.registerCSV(newTableName, csv)
+        RegisterCSV(newTableName, csv)
         addedCSVs.push({
           name: newTableName,
           csv
@@ -97,7 +132,7 @@ GROUP BY a`;
         $: errmsg = e;
       }
       newTableName = null;
-      $: schemas = pyodide.schemas()
+      getSchema()
       $: addedCSVs = addedCSVs
     } else {
       $: errmsg = "New table needs a name!"
@@ -105,41 +140,34 @@ GROUP BY a`;
   }
 
   function onSQLSubmit(){
-    addStat(sessionID, q, csv, errmsg, false, null, null)
     $: {
-      $lineageData = getQueryLineage(q)
-
+      getQueryLineage(q);
     }
   }
 
   function onSelectQuery(query) {
-  console.log("selected dropdown", query)
+    console.log("selected dropdown", query)
     $: q = query
   }
 
-  pyodide.onLoaded(() => {
-    let csvs = queryParams.get("csvs")
-    console.log("loaded csvs from url", csvs)
-    if (csvs) {
-      $: addedCSVs = JSON.parse(csvs)
-      addedCSVs.forEach(({name, csv}) =>
-        pyodide.registerCSV(name, csv)
-      )
-    }
-    $: schemas = pyodide.schemas()
-  })
-
   onMount(() => {
+    getSchema();
   })
 
   function reportBug(comment, email) {
-    addStat(sessionID, q, JSON.stringify(addedCSVs), errmsg, true, comment, email)
+    // TODO: send bug to backend
+    //addStat(sessionID, q, JSON.stringify(addedCSVs), errmsg, true, comment, email)
   }
 
 </script>
 
 <style>
-  textarea.editor {
+  textarea.editor_sql {
+    width: 100%;
+    min-height: 10em;
+    border: 1px solid black;
+  }
+  textarea.editor_csv {
     width: 100%;
     min-height: 20em;
     border: 1px solid black;
@@ -157,11 +185,6 @@ GROUP BY a`;
   }
   small {
     font-size: 0.5em;
-  }
-  small .permalink {
-    font-size: 0.9em;
-    margin-left: .5em;
-    color: grey;
   }
   a:hover {
     background: var(--bs-highlight-bg);
@@ -193,24 +216,17 @@ GROUP BY a`;
 <Bug id="modalBug" reportBug={reportBug} />
 
 
-<main class="container-xl">
+<main class="container-xxl">
   <h1>
     SQLTutor Visualizes Query Execution <small><a href="https://github.com/cudbg/sqltutor">github</a></small>
   </h1>
   <div class="row">
-    <div class="col-md-3">
       <h3>About</h3>
       <p>
       <strong>SQLTutor</strong> visualizes each operator in the SQL query plan.  
       Click on an operator to visualize its input and output tables, along with their row/column dependencies (called <a href="https://arxiv.org/abs/1801.07237">data provenance</a>) .  
       You can add new tables using the <mark>CSV</mark> textarea.  The CSV should include a header row.
       Use <mark>&leftarrow;</mark> and <mark>&rightarrow;</mark> to visualize the prev/next operator.  </p>
-
-
-      <p>
-      This is an early release!  SQLTutor currently only supports very simple queries and <a href="https://github.com/w6113/databass-public/blob/master/databass/parse_sql.py">follows a simple grammar</a>.    We hope to eventually support DuckDB as the backend in a future release.
-      </p>
-
 
       <p style="font-size: smaller;">
       <!--<a target="_blank" href={`https://docs.google.com/forms/d/e/1FAIpQLSeqdk3ZqQms92iaGq5rKV6yUdnhLcRllc8igQPl1KGUwfCEUw/viewform?usp=pp_url&entry.351077705=${encodeURI(q)}&entry.1154671727=${encodeURI(csv)}&entry.1900716371=${encodeURI(errmsg)}`} class="link">Report a bug</a>. -->
@@ -219,45 +235,9 @@ GROUP BY a`;
       <a href="https://cudbg.github.io/sql2pandas/" class="link">Learning Pandas too?  Check out sql2pandas</a>
       <!--Want to help? Contact us!-->
       </p>
-      <p class="text-muted" style="font-size: smaller">
-        permalink
-        <input type="text" class="permalink" bind:value={permalink} style="width:100%;"/>
-      </p>
-    </div>
-
-    {#await pyodide.init(msgEl)}
-    <div class="col-md-3">
-      <h3>
-        SQL
-      </h3>
-      <textarea class="editor" disabled bind:value={q} />
-      <button class="btn btn-secondary" disabled style="width:100%;">Loading libraries...</button>
-    </div>
-    <div class="col-md-3">
-      <h3>CSV</h3>
-      <textarea class="editor" disabled bind:value={csv} />
-      <button class="btn btn-secondary" disabled style="width:100%;">Loading libraries...</button>
-    </div>
-    <div class="col-md-3">
-      <h3>Database</h3>
-      Loading...
-    </div>
-    {:then}
-    <div class="col-md-3">
-      <h3>
-        SQL
-        <small><QueryPicker onSelect={onSelectQuery}/></small>
-      </h3>
-      <textarea class="editor" id="q" bind:this={editorEl} bind:value={q} />
-      <button class="btn btn-primary" on:click={onSQLSubmit} style="width:100%;">Visualize Query</button>
-    </div>
-    <div class="col-md-3">
-      <h3>CSV 
-        <small><input bind:value={newTableName} placeholder="New Table Name"/></small> </h3>
-      <textarea class="editor" id="csv" bind:this={csvEl} bind:value={csv} />
-      <button class="btn btn-primary" on:click={addTable} style="width:100%;">Add Table</button>
-    </div>
-    <div class="col-md-3">
+  </div>
+  <div class="row">
+    <div class="col-md-9">
       <h3>Tables</h3>
       <ul class="schema">
         {#each schemas as [name, schema] }
@@ -265,9 +245,22 @@ GROUP BY a`;
         {/each}
       </ul>
     </div>
-    {/await}
 
+    <div class="col-md-3">
+      <h3>CSV 
+        <small><input bind:value={newTableName} placeholder="New Table Name"/></small> </h3>
+      <textarea class="editor_csv" id="csv" bind:this={csvEl} bind:value={csv} />
+      <button class="btn btn-primary" on:click={addTable} style="width:100%;">Add Table</button>
+    </div>
 
+  </div>
+  <div class="row">
+      <h3>
+        SQL
+        <small><QueryPicker onSelect={onSelectQuery}/></small>
+      </h3>
+      <textarea class="editor_sql" id="q" bind:this={editorEl} bind:value={q} />
+      <button class="btn btn-primary" on:click={onSQLSubmit} style="width:100%;">Visualize Query</button>
   </div>
 
 
@@ -300,17 +293,10 @@ GROUP BY a`;
 
   <div class="row footer" style="margin-top: 3em;">
     <div class="col-md-8 offset-md-2 text-center" style="border-top: 1px solid grey;">
-      <p>
-      <span class="text-muted">SQLTutor created by <a href="https://eugenewu.net">Eugene Wu</a> and Robert Ward</span>
-      </p>
-
       <p style="font-size:smaller;">
       See <a href="https://github.com/cudbg/sqltutor">github repo</a> for code.   
-      Implemented using the instructional 
-        <a href="https://github.com/w6113/databass-public">Databass DBMS</a>
-        developed for Columbia's <a href="https://w6113.github.io">COMS6113</a>,
-        <a href="https://pyodide.org/">pyodide</a>,
-        <a href="https://convex.dev/">convex</a>,
+      Implemented using 
+        <a href="">DuckDB version x</a>
         and table vis from <a href="https://pandastutor.com/">pandastutor</a>.
       </p>
 

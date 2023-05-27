@@ -5,14 +5,9 @@
 
 import pandas as pd
 import numpy
-import duckdb
 import json
 
-con = duckdb.connect(database=':memory:', read_only=False)
-# enable profiling
-con.execute("PRAGMA explain_output = PHYSICAL_ONLY;")
-
-def runQuery(q, qname):
+def runQuery(con, q, qname):
     json_fname = "{}.json".format(qname)
     con.execute("PRAGMA enable_profiling = 'json';")
     con.execute("PRAGMA profiling_output = '{}';".format(json_fname))
@@ -23,7 +18,7 @@ def runQuery(q, qname):
     con.execute("PRAGMA intermediate_tables = 'OFF';")
     con.execute("PRAGMA trace_lineage = 'OFF';")
     con.execute("PRAGMA disable_profiling;")
-    qid_df = con.execute("SELECT query_id FROM queries_list WHERE query=?", [q]).fetchdf()
+    qid_df = con.execute("SELECT query_id FROM duckdb_queries_list() WHERE query=?", [q]).fetchdf()
     qid = qid_df['query_id'][0]
     
     # read query plan file
@@ -115,7 +110,7 @@ def getColumnLevelLineage(qid : int, plan : dict):
         
     return results
     
-def getLineagePerOperatortoPlan(qid, plan):
+def getLineagePerOperatortoPlan(con, qid, plan):
     # traverse the query plan, and 
     op_name = plan['name']
     l_name = "LINEAGE_{}_{}".format(qid, op_name)        
@@ -147,7 +142,7 @@ def getLineagePerOperatortoPlan(qid, plan):
 
     return op_lineage
     
-def getIntermediates(qid, plan):
+def getIntermediates(con, qid, plan):
     # start from leaf node, get base table, then merge and propagate intermediate table 
     name = plan['name']
     l_name = "LINEAGE_{}_{}_100".format(qid, name)        
@@ -310,17 +305,17 @@ def serializeLineage(qid, plan, depth=0, lineage_json={}):
     return lineage_json
 
                         
-def extractMetadata(qid, plan, depth=0):
+def extractMetadata(con, qid, plan, depth=0):
     depth += 1    
     for idx, c in enumerate(plan['children']):  
-        c["lineage"] = getLineagePerOperatortoPlan(qid, c)
+        c["lineage"] = getLineagePerOperatortoPlan(con, qid, c)
         
-        extractMetadata(qid, c, depth)
+        extractMetadata(con, qid, c, depth)
 
         c["column_lineage"] = getColumnLevelLineage(qid, c)
         print("column lineage for {} ".format(c["name"]), c["column_lineage"])
         
-        intermediate, base_table = getIntermediates(qid, c)
+        intermediate, base_table = getIntermediates(con, qid, c)
         c["output"] = intermediate
         if len(base_table) > 0:
             c["input"] = base_table
@@ -332,45 +327,17 @@ def extractMetadata(qid, plan, depth=0):
 ## add projection list for operators that have projection push down ("e.g. scan, join, filter")
 
 
-def process(q, qname):
+def process(con, q, qname):
     print("**********{}**********".format(qname))
     print(q)
-    df, qid, plan = runQuery(q, qname)
+    df, qid, plan = runQuery(con, q, qname)
     print("\noutput:\n", df)
     print("\nPlan:\n", plan)
     lineage_json = {}
-    extractMetadata(qid, plan, 0)
+    extractMetadata(con, qid, plan, 0)
     lineage_json = serializeLineage(qid, plan, 0, {})
     #print("\nlineage json:\n", lineage_json)
 
     with open('{}.json'.format(qname), 'w') as outfile:
         json.dump(lineage_json, outfile)
 
-## example: 
-
-# generate tpch workload
-con.execute("CALL dbgen(sf=0.001);")
-
-q = """SELECT supp_nation, cust_nation, l_year, sum(volume) AS revenue
-FROM (
-    SELECT
-        n1.n_name AS supp_nation,
-        n2.n_name AS cust_nation,
-        extract(year FROM l_shipdate) AS l_year,
-        l_extendedprice * (1 - l_discount) AS volume
-    FROM supplier, lineitem, orders, customer, nation n1, nation n2
-    WHERE
-        s_suppkey = l_suppkey
-        AND o_orderkey = l_orderkey
-        AND c_custkey = o_custkey
-        AND s_nationkey = n1.n_nationkey
-        AND c_nationkey = n2.n_nationkey
-        AND ((n1.n_name = 'INDIA'
-                AND n2.n_name = 'MOROCCO')
-            OR (n1.n_name = 'MOROCCO'
-                AND n2.n_name = 'INDIA'))
-        AND l_shipdate BETWEEN CAST('1995-01-01' AS date)
-        AND CAST('1996-12-31' AS date)) AS shipping
-GROUP BY supp_nation, cust_nation, l_year
-ORDER BY supp_nation, cust_nation, l_year;"""
-process(q, "q7")

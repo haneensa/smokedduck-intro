@@ -176,7 +176,7 @@
 
   </h2>
 <!--<button id="visualizeButton" type="button" on:click={onClick}>Visualize Entire Query Plan</button>-->
-<pre class="prequery"><code class="queryText">{$lineageData.qstr}</code></pre>
+<!--pre class="prequery"><code class="queryText">{$lineageData.qstr}</code></pre-->
 <svg id="qPlanTreeSVG"  bind:this={svgEl}>
   <g 
      id="qPlanTree" 
