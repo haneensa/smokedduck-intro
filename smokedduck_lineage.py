@@ -4,8 +4,9 @@
 # coding: utf-8
 
 import pandas as pd
-import numpy
+import numpy as np
 import json
+import re
 
 def runQuery(con, q, qname):
     json_fname = "{}.json".format(qname)
@@ -18,8 +19,8 @@ def runQuery(con, q, qname):
     con.execute("PRAGMA intermediate_tables = 'OFF';")
     con.execute("PRAGMA trace_lineage = 'OFF';")
     con.execute("PRAGMA disable_profiling;")
-    qid_df = con.execute("SELECT query_id FROM duckdb_queries_list() WHERE query=?", [q]).fetchdf()
-    qid = qid_df['query_id'][0]
+    qid_df = con.execute("SELECT max(query_id) as latest_qid FROM duckdb_queries_list() WHERE query=?", [q]).fetchdf()
+    qid = qid_df['latest_qid'][0]
     
     # read query plan file
     with open(json_fname, 'r') as f:
@@ -31,7 +32,7 @@ def runQuery(con, q, qname):
 def OperatorName(name):
     return "_".join(name.split("_")[:-1])
     
-def getColumnLevelLineage(qid : int, plan : dict):   
+def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
     """
     return operator level column lineage:
     "original": str, # plan["extra_info"]
@@ -40,36 +41,60 @@ def getColumnLevelLineage(qid : int, plan : dict):
     "column_ref": [int] # [indexFromChild(col) for each col in current operator]
     """
     if "extra_info" not in plan:
-        return {}
+        return {"str": ""}
     
     extra_info = plan["extra_info"].split("[INFOSEPARATOR]")
-    results = {"original": extra_info}
+    results = {"original": extra_info, "str": ""}
     op_name = OperatorName(plan['name'])    
     
+    print(op_name, parent["name"])
     if len(plan["children"]) > 0:
         results["table_name"] = plan['children'][0]["name"]
 
     if op_name == "SEQ_SCAN":
         # Schema: table_name\nINFOSEPARATOR\ncolname_i for i in projection_list\nINFOSEPARATOR\nFilters: ..
         results["table_name"] = extra_info[0].strip()
+        results["str"] += "Input: {}".format(results['table_name'])
         if len(extra_info) > 1:
             cols =  extra_info[1].strip().split("\n")
             results["alias"] = [x.split("#DEL#")[0] for x in cols]
             results["col_ref"] = [x.split("#DEL#")[1].split(',') for x in cols]
             results["col_ref"] = [[int(i) for i in inner_lst] for inner_lst in results["col_ref"]]
+            results["str"] += " | Cols: [{}].".format(', '.join(results["alias"]))
+
         if len(extra_info) > 2:
             results["filter_push"] = 1
+            results["str"] += " | {}".format(extra_info[2].strip())
     elif op_name in ["FILTER", "ORDER_BY", "LIMIT"]:
         # TODO: filter does have projection push down. handle it
         if "alias" in plan["children"][0]["column_lineage"]:
             results["alias"] = plan["children"][0]["column_lineage"]["alias"]
             results["col_ref"] = plan["children"][0]["column_lineage"]["col_ref"]
+        if op_name == "FILTER":
+            results["str"] = plan["extra_info"]
+        elif op_name == "ORDER_BY":
+            # e.g. '#0 ASC\n#1 ASC\n#2 ASC'
+            col_order = plan["extra_info"].split('\n')
+            col_dir = [(int(col.split(' ')[0][1:]), col.split()[-1]) for col in col_order if col]
+            col_dir_alias = ["{} {}".format(results["alias"][x[0]], x[1]) for x in col_dir]
+            results["str"] +=  "Order By: {}".format(', '.join(col_dir_alias))
+        elif op_name == "LIMIT":
+            # TODO: extend operator to return limit and offset values
+            print(extra_info)
+            results["str"] += "LIMIT"
     elif op_name == "PROJECTION":
         # Schema: hasFunction\nINFOSEPARATOR\nalias_i.col_1,col_2,..,col_n.name_i for i in projection_list
         cols =  extra_info[1].strip().split("\n")
         results["alias"] = [x.split("#DEL#")[0] for x in cols]
         results["col_ref"] = [x.split("#DEL#")[1].split(',') for x in cols]
         results["col_ref"] = [[int(i) for i in inner_lst if i.isdigit()] for inner_lst in results["col_ref"]]
+
+        # if we can propagate alias from children, then do that
+        if "alias" in plan["children"][0]["column_lineage"]:
+            child_col_lineage = plan["children"][0]["column_lineage"]["alias"]
+            results["alias"] = [ child_col_lineage[int(x[1:])]  if (x.startswith("#") and len(child_col_lineage) > int(x[1:])) else x for x in results["alias"] ]
+        results["str"] += " Cols: [{}].".format(', '.join(results["alias"]))
+
     elif op_name in ["HASH_GROUP_BY", "PERFECT_HASH_GROUP_BY"]:
         aggs = extra_info[0].strip().split("\n")
 
@@ -81,33 +106,64 @@ def getColumnLevelLineage(qid : int, plan : dict):
             gb_keys = [x for x in aggs if x.startswith("#")]
             aggs_cols = [x for x in aggs if not x.startswith("#")]
         results["alias"] = gb_keys + aggs_cols
-        results["col_ref"] = [i for i in range(len(results["alias"]))]
+        results["col_ref"] = [[i] for i in range(len(gb_keys))]
+        results["col_ref"] += [[int(i) for i in re.findall(r"#(\d+)", x)] for x in aggs_cols]
+        results["str"] += "Key: [{}].".format(', '.join(gb_keys))
+        results["str"] += ", Aggs: [{}].".format(', '.join(aggs_cols))
     elif op_name == "SIMPLE_AGGREGATE":
         cols = extra_info[0].strip().split("\n")
         results["alias"] = [x.split("#DEL#")[0] for x in cols]
         results["col_ref"] = [x.split("#DEL#")[1].split(',') for x in cols]
         results["col_ref"] = [[int(i) for i in inner_lst if i.isdigit()] for inner_lst in results["col_ref"]]
-    elif op_name == "HASH_JOIN":
+    elif op_name in ["CROSS_PRODUCT", "INDEX_JOIN", "PIECEWISE_MERGE_JOIN", "NESTED_LOOP_JOIN", "BLOCKWISE_NL_JOIN", "DELIM_JOIN"]:
+        results["table_name"] += "+" + plan['children'][1]["name"]
+        join_cond = results["original"][0].strip()
+        results["str"] += join_cond
+        rchild_col_lineage = plan["children"][1]["column_lineage"]
+        lchild_col_lineage = plan["children"][0]["column_lineage"]
+        if "alias" in rchild_col_lineage:
+            right_alias = rchild_col_lineage["alias"]
+        if "alias" in lchild_col_lineage:
+            left_alias = lchild_col_lineage["alias"]
+        results["alias"] = left_alias
+        results["alias"] += right_alias
+        results["col_ref"] = [[i] for i in range(len(results["alias"]))] 
+    elif op_name in ["HASH_JOIN"]:
         results["table_name"] += "+" + plan['children'][1]["name"]
         results["alias"] = []
         right_projection = extra_info[1].strip()
-        lchild_col_lineage = plan["children"][0]["column_lineage"]
+        left = plan["children"][0]
+        lchild_col_lineage = left["column_lineage"]
+        print(left['name'], lchild_col_lineage)
         rchild_col_lineage = plan["children"][1]["column_lineage"]
         right_alias, left_alias = [], []
         if "alias" in rchild_col_lineage:
             right_alias = rchild_col_lineage["alias"]
         if "alias" in lchild_col_lineage:
             left_alias = lchild_col_lineage["alias"]
-        results["col_ref"] = [i for i in range(len(left_alias) + len(right_alias) )]
+        results["col_ref_left"] = [[i] for i in range(len(left_alias))] 
+
         results["alias"] += left_alias
         
-        if len(right_projection) > 0:
+        results["col_ref_right"] = []
+
+        join_cond = results["original"][0].strip()
+        results["str"] += join_cond
+        if join_cond[:4] in ["SEMI","ANTI"]:
+            print('semi join, skip right side')
+        elif join_cond[:4] == "MARK":
+            results["alias"] += ["IN"]
+        elif len(right_projection) > 0:
             for i in right_projection.split('\n'):
                 col = right_alias[int(i[1:])]
+                results["col_ref_right"] += [[col]]
                 results["alias"] += [col]
         else:
+            results["col_ref_right"] = [[i] for i in range(len(right_alias))]
             results["alias"] += right_alias
         
+        results["col_ref"] = [[i] for i in range(len(results["alias"]))]
+
     return results
     
 def getLineagePerOperatortoPlan(con, qid, plan):
@@ -154,6 +210,8 @@ def getIntermediates(con, qid, plan):
         # TODO: check the case where input == output and avoid duplicating data
     if op_name == "ORDER_BY":
         input_df = plan["children"][0]["output"]
+        if "lineage" not in plan:
+            return pd.DataFrame(), base_table
         intermediate = pd.merge(plan["lineage"], input_df, how='inner', left_on='in_index',  right_index=True, ).sort_values(by="out_index").drop(columns=["out_index", "in_index"])
     else:
         intermediate = con.execute("select * from {}".format(l_name)).fetchdf()
@@ -180,16 +238,26 @@ def getRowLineage(qid, plan, depth, lineage_json):
     lineage_out = {}
     lineage = []
     op_name = OperatorName(plan["name"])    
-    if op_name in ["HASH_JOIN", "CROSS_PRODUCT", "INDEX_JOIN", "PIECEWISE_MERGE_JOIN", "NESTED_LOOP_JOIN", "BLOCKWISE_NL_JOIN"]:
-        lineage_lhs = [[int(row['out_index']), int(row['lhs_index'])] for index, row in plan["lineage"].iterrows()]
-        lineage_rhs = [[int(row['out_index']), int(row['rhs_index'])] for index, row in plan["lineage"].iterrows()]
+    lineage_relation = plan["lineage"]
+    """
+    lineage_relation = lineage_relation.iloc[:limit]
+    s = 0
+    e = len(lineage_relation)
+    num_rows = min(limit, len(lineage_relation))
+    random_values = np.random.choice(np.arange(s, e), size=num_rows, replace=False)
+    random_values = np.sort(random_values)
+    lineage_relation = lineage_relation.iloc[random_values]
+    """
+    if op_name in ["HASH_JOIN", "CROSS_PRODUCT", "INDEX_JOIN", "PIECEWISE5MERGE_JOIN", "NESTED_LOOP_JOIN", "BLOCKWISE_NL_JOIN"]:
+        lineage_lhs = [[int(row['out_index']), int(row['lhs_index'])] for index, row in lineage_relation.iterrows()]
+        lineage_rhs = [[int(row['out_index']), int(row['rhs_index'])] for index, row in lineage_relation.iterrows()]
         lineage_out[plan["name"]] = [[0, lineage_lhs]]
         lineage_out[plan["name"]].append([1, lineage_rhs])
     else:
         if (op_name == "SEQ_SCAN" and "filter_push" not in plan["column_lineage"]) or len(plan["lineage"]) == 0:
             return {}
         else:
-            lineage = [[int(row['out_index']), int(row['in_index'])] for index, row in plan["lineage"].iterrows()]
+            lineage = [[int(row['out_index']), int(row['in_index'])] for index, row in lineage_relation.iterrows()]
             lineage_out[plan["name"]] = [[0, lineage]]
     return lineage_out
         
@@ -203,7 +271,9 @@ def getInfo(qid, plan, depth, lineage_json):
         "schema":  [str], # [alias(col) for each col in current operator]
         "id": str, # operator unique id
         "depth": int, # operator depth within the query plan
-        "table_name"? : str, # if "name" is SEQ_SCAN
+        "table_name"? : str, # if "name" is SEQ_SCAN,
+        "input" : [int], # input cardinality
+        "output" : int,  # output cardinality
 
     "col": dict(opid : column_ref)
         "column_ref": [int] # [indexFromChild(col) for each col in current operator]
@@ -214,7 +284,7 @@ def getInfo(qid, plan, depth, lineage_json):
     info = {}
     opid = plan['name']
     op_name = OperatorName(opid)    
-    info["str"] = plan["extra_info"]
+    info["str"] = plan["column_lineage"]["str"]
 
     info["name"] = op_name
 
@@ -224,8 +294,13 @@ def getInfo(qid, plan, depth, lineage_json):
     if 'column_lineage' in plan and "alias" in plan['column_lineage']:
         info["schema"] = plan['column_lineage']["alias"]
 
+    #info["input"] = 
+    #info["output"] = 
+
     info["id"] = opid
     info["depth"] = depth
+    opid_number = opid.rsplit("_", 1)[-1]
+    info["id_number"] = opid_number
     
     return {opid : info}
      
@@ -233,17 +308,34 @@ def getResults(qid, plan, depth, lineage_json):
     res = {}
     if "input" in plan:
         base = plan["input"]
+        """
+        #base = base.iloc[:limit]
+        s = 0
+        e = len(base)
+        num_rows = min(limit, len(base))
+        random_values = np.random.choice(np.arange(s, e), size=num_rows, replace=False)
+        random_values = np.sort(random_values)
+        base = base.iloc[random_values]
+        """
         col_names = list(base.columns)
-         
         # Convert datetime columns to strings
         for col in list(base.columns):
             base[col] = base[col].astype(str)
             
         base_rows = [row.values.tolist() for index, row in base.iterrows()]
-        res[plan["name"]+"input"] = {"rows": base_rows, "columns": col_names}
+        res[plan["name"]+"input"] = {"rows": base_rows, "columns": col_names, "cardinality" : len(base)}
     
     if "output" in plan:
         base = plan["output"]
+        """
+        #base = base.iloc[:limit]
+        s = 0
+        e = len(base)
+        num_rows = min(limit, len(base))
+        random_values = np.random.choice(np.arange(s, e), size=num_rows, replace=False)
+        random_values = np.sort(random_values)
+        base = base.iloc[random_values]
+        """
         col_names = list(base.columns)
          
         # Convert datetime columns to strings
@@ -256,7 +348,7 @@ def getResults(qid, plan, depth, lineage_json):
         else:
             alias = col_names
         
-        res[plan["name"]] = {"rows": base_rows, "columns": alias}
+        res[plan["name"]] = {"rows": base_rows, "columns": alias, "cardinality" : len(base)}
         
     return res
 
@@ -280,17 +372,30 @@ def serializeLineage(qid, plan, depth=0, lineage_json={}):
         lineage_json["info"] = {}
         
         lineage_json["row"] = {}
+        lineage_json["expr"] = {}
     else:
+        if OperatorName(plan["name"]) == "DELIM_JOIN":
+            left = plan["children"][0]
+            hj = plan["children"][1]
+            hj["children"][0] = left
+            plan["children"] = [hj]
+            # make the parent of this operator this operator
+
         lineage_json["op"][plan["name"]] = [c["name"] for c in plan['children']]
         info = getInfo(qid, plan, depth, lineage_json)
         lineage_json["info"].update(info)
-        
+
         res = getResults(qid, plan, depth, lineage_json)
         lineage_json["results"].update(res)
         
         if "col_ref" in plan["column_lineage"]:
-            col_ref = plan['column_lineage']["col_ref"]
+            col_lineage = plan["column_lineage"]
+            if "col_ref_left" in col_lineage:
+                lineage_json["expr"][plan['name']] = {0 : col_lineage["col_ref_left"], 1: col_lineage["col_ref_right"]}
+
+            col_ref = col_lineage["col_ref"]
             lineage_json["col"][plan['name']] = col_ref
+            print(plan["name"], lineage_json["col"][plan["name"]])
 
         lineage_out = getRowLineage(qid, plan, depth, lineage_json)
         lineage_json["row"].update(lineage_out)
@@ -304,15 +409,23 @@ def serializeLineage(qid, plan, depth=0, lineage_json={}):
 
     return lineage_json
 
-                        
 def extractMetadata(con, qid, plan, depth=0):
     depth += 1    
     for idx, c in enumerate(plan['children']):  
-        c["lineage"] = getLineagePerOperatortoPlan(con, qid, c)
+        # get lineage for operator
+        # return empty for 1:1 mappings or no lineage for operator
+        # supported operators: ["SEQ_SCAN", "ORDER_BY", "FILTER", "LIMIT",
+        #                       "HASH_GROUP_BY", "PERFECT_HASH_GROUP_BY", "HASH_JOIN",
+        #                       "CROSS_PRODUCT", "INDEX_JOIN", "PIECEWISE_MERGE_JOIN", 
+        #                       "NESTED_LOOP_JOIN", "BLOCKWISE_NL_JOIN"]
+        lineage = getLineagePerOperatortoPlan(con, qid, c)
+        if len(lineage):
+            # only persist if
+            c["lineage"] = lineage
         
         extractMetadata(con, qid, c, depth)
 
-        c["column_lineage"] = getColumnLevelLineage(qid, c)
+        c["column_lineage"] = getColumnLevelLineage(qid, c, plan)
         print("column lineage for {} ".format(c["name"]), c["column_lineage"])
         
         intermediate, base_table = getIntermediates(con, qid, c)
@@ -326,6 +439,14 @@ def extractMetadata(con, qid, plan, depth=0):
 ## Done - Add leaf node to indicate scan from base table since SEQ_SCAN can have filter pushed down
 ## add projection list for operators that have projection push down ("e.g. scan, join, filter")
 
+def serializeRelation(base):
+    col_names = list(base.columns)
+    # Convert datetime columns to strings
+    for col in list(base.columns):
+        base[col] = base[col].astype(str)
+
+    base_rows = [row.values.tolist() for index, row in base.iterrows()]
+    return base_rows, col_names
 
 def process(con, q, qname):
     print("**********{}**********".format(qname))
@@ -335,9 +456,22 @@ def process(con, q, qname):
     print("\nPlan:\n", plan)
     lineage_json = {}
     extractMetadata(con, qid, plan, 0)
+
+    # get the column names for root operator from the final result
+    plan["children"][0]["column_lineage"]["alias"] = list(df.columns)
+    
     lineage_json = serializeLineage(qid, plan, 0, {})
     #print("\nlineage json:\n", lineage_json)
 
     with open('{}.json'.format(qname), 'w') as outfile:
         json.dump(lineage_json, outfile)
 
+# delim: 2, 17, 20, 21
+# TODO: get join keys column reference
+# TODO: annotate delim join to make it explainable
+# TODO: when delim join, its hash join child columns has extra attribute
+# TODO: delim join hash join projection is empty
+# TODO: delim join connect hash join delim scan with group by
+# TODO: replace '#x' with the column name they are referencing applicable to: order by, group by, projections functions
+# q9 UI is slow
+# TODO: add limit column annotations
