@@ -14,13 +14,7 @@ Built on top of
 Develop and Run
 
     npm install .
-    npx convex dev
     npm run dev
-
-If there's issues with convex
-
-    npx convex init
-    npx convex reinit --help
 
 
 # Future Features
