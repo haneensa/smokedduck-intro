@@ -1,7 +1,10 @@
 import duckdb
 from flask import Flask, request
 from flask_cors import CORS
-from smokedduck_lineage import extractMetadata, runQuery, serializeLineage
+import pandas as pd
+import io
+
+from smokedduck_lineage import extractMetadata, runQuery, serializeLineage, debug, addDelimJoinAnnotation
 
 app = Flask(__name__)
 CORS(app)
@@ -29,6 +32,7 @@ def DropLineageTables(con):
         if row["name"][:7] == "LINEAGE":
             print("drop: ", row["name"])
             con.execute("DROP TABLE "+row["name"])
+    con.execute("pragma clear_lineage")
 
 @app.post("/sql")
 def execute_sql():
@@ -36,6 +40,8 @@ def execute_sql():
     query = body['query']
     print(query)
     df, qid, plan = runQuery(con, query, "query")
+    
+    addDelimJoinAnnotation(plan)
     extractMetadata(con, qid, plan, 0)
     lineage_json = serializeLineage(qid, plan, 0, {})
     # drop all lineage tables

@@ -65,6 +65,10 @@ def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
         if len(extra_info) > 2:
             results["filter_push"] = 1
             results["str"] += " | {}".format(extra_info[2].strip())
+    elif op_name == "DELIM_SCAN":
+        #join["delim_data"] = [agg, left]
+        results = dict(plan["delim_data"][0]["column_lineage"])
+        results["str"] = "Read output of " + plan["delim_data"][0]["name"]
     elif op_name in ["FILTER", "ORDER_BY", "LIMIT"]:
         # TODO: filter does have projection push down. handle it
         if "alias" in plan["children"][0]["column_lineage"]:
@@ -100,11 +104,16 @@ def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
 
         if len(plan["children"]) > 0:
             child_col_lineage = plan["children"][0]["column_lineage"]["alias"]
-            gb_keys = [child_col_lineage[int(x[1:])] for x in aggs if x.startswith("#")]
-            aggs_cols = [x for x in aggs if not x.startswith("#")]
+        elif OperatorName(parent["name"]) == "DELIM_JOIN":
+            child_col_lineage = plan["delim_children"]["column_lineage"]["alias"]
+            results["str"] += " Duplicate eliminate for correlated subquery eval | "
         else:
             gb_keys = [x for x in aggs if x.startswith("#")]
             aggs_cols = [x for x in aggs if not x.startswith("#")]
+        
+        gb_keys = [child_col_lineage[int(x[1:])] for x in aggs if x.startswith("#")]
+        aggs_cols = [x for x in aggs if not x.startswith("#")]
+
         results["alias"] = gb_keys + aggs_cols
         results["col_ref"] = [[i] for i in range(len(gb_keys))]
         results["col_ref"] += [[int(i) for i in re.findall(r"#(\d+)", x)] for x in aggs_cols]
@@ -115,6 +124,8 @@ def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
         results["alias"] = [x.split("#DEL#")[0] for x in cols]
         results["col_ref"] = [x.split("#DEL#")[1].split(',') for x in cols]
         results["col_ref"] = [[int(i) for i in inner_lst if i.isdigit()] for inner_lst in results["col_ref"]]
+    elif op_name == "DELIM_JOIN":
+        results = dict(plan["children"][2]["column_lineage"])
     elif op_name in ["CROSS_PRODUCT", "INDEX_JOIN", "PIECEWISE_MERGE_JOIN", "NESTED_LOOP_JOIN", "BLOCKWISE_NL_JOIN", "DELIM_JOIN"]:
         results["table_name"] += "+" + plan['children'][1]["name"]
         join_cond = results["original"][0].strip()
@@ -125,17 +136,22 @@ def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
             right_alias = rchild_col_lineage["alias"]
         if "alias" in lchild_col_lineage:
             left_alias = lchild_col_lineage["alias"]
-        results["alias"] = left_alias
-        results["alias"] += right_alias
+        results["alias"] = list(left_alias)
+        results["alias"] += list(right_alias)
         results["col_ref"] = [[i] for i in range(len(results["alias"]))] 
     elif op_name in ["HASH_JOIN"]:
         results["table_name"] += "+" + plan['children'][1]["name"]
         results["alias"] = []
         right_projection = extra_info[1].strip()
-        left = plan["children"][0]
+        if OperatorName(parent["name"]) == "DELIM_JOIN" and "delim_left" in plan:
+            results["str"] += " Delim Join | "
+            left = plan["delim_left"]
+        else:
+            left = plan["children"][0]
         lchild_col_lineage = left["column_lineage"]
         print(left['name'], lchild_col_lineage)
         rchild_col_lineage = plan["children"][1]["column_lineage"]
+        print("right_projection: ", right_projection, len(right_projection), rchild_col_lineage)
         right_alias, left_alias = [], []
         if "alias" in rchild_col_lineage:
             right_alias = rchild_col_lineage["alias"]
@@ -143,7 +159,7 @@ def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
             left_alias = lchild_col_lineage["alias"]
         results["col_ref_left"] = [[i] for i in range(len(left_alias))] 
 
-        results["alias"] += left_alias
+        results["alias"] += list(left_alias)
         
         results["col_ref_right"] = []
 
@@ -159,8 +175,9 @@ def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
                 results["col_ref_right"] += [[col]]
                 results["alias"] += [col]
         else:
+            print("right_alias", right_alias)
             results["col_ref_right"] = [[i] for i in range(len(right_alias))]
-            results["alias"] += right_alias
+            results["alias"] += list(right_alias)
         
         results["col_ref"] = [[i] for i in range(len(results["alias"]))]
 
@@ -294,6 +311,8 @@ def getInfo(qid, plan, depth, lineage_json):
     if 'column_lineage' in plan and "alias" in plan['column_lineage']:
         info["schema"] = plan['column_lineage']["alias"]
 
+    if "delim_children" in plan:
+        info["delim_children"] = plan["delim_children"]["name"]
     #info["input"] = 
     #info["output"] = 
 
@@ -374,12 +393,6 @@ def serializeLineage(qid, plan, depth=0, lineage_json={}):
         lineage_json["row"] = {}
         lineage_json["expr"] = {}
     else:
-        if OperatorName(plan["name"]) == "DELIM_JOIN":
-            left = plan["children"][0]
-            hj = plan["children"][1]
-            hj["children"][0] = left
-            plan["children"] = [hj]
-            # make the parent of this operator this operator
 
         lineage_json["op"][plan["name"]] = [c["name"] for c in plan['children']]
         info = getInfo(qid, plan, depth, lineage_json)
@@ -448,6 +461,45 @@ def serializeRelation(base):
     base_rows = [row.values.tolist() for index, row in base.iterrows()]
     return base_rows, col_names
 
+def debug(plan):
+    print("*****debug", plan["name"])
+    if plan["name"] == "HASH_JOIN_26":
+        print("extract metadata ***", plan["name"], plan["column_lineage"])
+    for idx, c in enumerate(plan['children']):  
+        debug(c)
+
+def UpdateDelimScans(join, agg, left):
+    if OperatorName(join["name"]) == "DELIM_SCAN":
+        print("delim scan", join, agg, left)
+        join["delim_data"] = [agg, left]
+
+    for c in join["children"]:
+        UpdateDelimScans(c, agg, left)
+
+def addDelimJoinAnnotation(plan):
+    if OperatorName(plan["name"]) == "DELIM_JOIN":
+        print("*****", len(plan["children"]))
+        #print("delim join childrens: ", plan["children"][0]["name"], plan["children"][1]["name"], plan["children"][2]["name"])
+        # left is the input to the hash aggregate for duplicate elimination
+        # left -> SINK (DELIM JOIN distinct (agg))
+        join = plan["children"][-2]
+        agg = plan["children"][-1]
+        if len(plan["children"]) > 2:
+            left = plan["children"][0]
+        else:
+            left = plan["children"][0]
+        
+        agg["delim_children"] = left
+        
+        #join["children"][0] = left
+        join["delim_left"] = left
+        plan["children"] = [left, agg, join]
+        # for any delim scan in delim join, the input to them is the output of agg
+        UpdateDelimScans(join, agg, left)
+        # make the parent of this operator this operator
+    for c in plan["children"]:
+        addDelimJoinAnnotation(c)
+
 def process(con, q, qname):
     print("**********{}**********".format(qname))
     print(q)
@@ -455,8 +507,10 @@ def process(con, q, qname):
     print("\noutput:\n", df)
     print("\nPlan:\n", plan)
     lineage_json = {}
-    extractMetadata(con, qid, plan, 0)
 
+    addDelimJoinAnnotation(plan)
+
+    extractMetadata(con, qid, plan, 0)
     # get the column names for root operator from the final result
     plan["children"][0]["column_lineage"]["alias"] = list(df.columns)
     

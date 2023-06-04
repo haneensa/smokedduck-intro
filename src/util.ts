@@ -208,12 +208,18 @@ export function simple(opid, lineageData, addOns) {
 
 
 export function groupby(opid, lineageData, addOns) {
+  console.log("groupby", opid, lineageData);
+  let rhs = makeWstTable(lineageData.results[opid]);
+  let lineageObj = lineageData.row[opid];
+  let info = lineageData.info[opid];
+  
   let child_opid = lineageData.op[opid][0];
+  if (child_opid == null) {
+    // get delim join left side id and assign it as child_opid
+    child_opid = info["delim_children"];
+  }
   let lhs = makeWstTable(lineageData.results[child_opid])
-  let rhs = makeWstTable(lineageData.results[opid])
-  let lineageObj = lineageData.row[opid]
-  let info = lineageData.info[opid]
-
+  console.log(child_opid, lhs, rhs, lineageObj);
   addOns.desc = "Groups rows and merges their data: " + info.str
   addOns.opType = "hashGroupOp"
   addOns.tableCaptions.lhs = lineageData.info[child_opid].name
