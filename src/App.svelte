@@ -35,123 +35,119 @@
 8,3,0,0,c,18,c
 9,4,1,0,d,20,d`;
 
-  function getSchema() {
+  async function getSchema() {
     try {
-      return fetch(url+"/schema", {
+      const response = await fetch(url+"/schema", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-      }).then(response => {
-        if (response.ok) {
-          $: errmsg = null;
-          return response.json()
-        } else {
-          console.error('Error:', response.status);
-          $: errmsg = 'Error: ' + response.status;
-        }
-      }).then(jsonData => {
-        // Process the JSON data as needed
-        // For example, you can access properties using jsonData.propertyName
-        console.log("schema", jsonData)
-        $: schemas = jsonData;
-      })
+        body: JSON.stringify({"client_id": sessionID})
+      });
+      if (response.ok) {
+        errmsg = null;
+        const jsonData = await response.json();
+        console.log("schema", jsonData);
+        return jsonData;
+      } else {
+        console.error("Error:", response.status);
+        errmsg = "Error: " + response.status;
+      }
     } catch (error) {
-      console.error('Error:', error);
-      $: errmsg = 'Error: ' + error;
+      errmsg = "Error: " + error;
+      console.error(errmsg);
     }
   }
   
-  function RegisterCSV(table_name, csv) {
-    const data = {'name': table_name, 'csv':csv};
+  async function RegisterCSV(table_name, csv) {
+    const data = {'name': table_name, 'csv':csv, "client_id": sessionID};
     try {
-      return fetch(url+"/csv", {
+      const response = await fetch(url+"/csv", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(data)
-      }).then(response => {
-        if (response.ok) {
-          $: errmsg = null;
-          return response.json();
-        } else {
-          console.error('Error:', response.status);
-          $: errmsg = 'Error: ' + response.status;
-        }
-      }).then(jsonData => {
-        return jsonData; // Return the JSON data to the caller
-      })
+      });
+
+      if (response.ok) {
+        errmsg = null;
+        schemas = await getSchema();
+      } else {
+          errmsg = 'Error: ' + response.status;
+          console.error(errmsg);
+      }
     } catch (error) {
-      console.error('Error:', error);
-      $: errmsg = 'Error: ' + error;
+      errmsg = 'Error: ' + error;
+      console.log(errmsg);
+      console.error(errmsg);
     }
   }
 
-  function getQueryLineage(q) {
-    const data = {'query': q};
+  async function getQueryLineage(q) {
+    const data = {'query': q, "client_id" : sessionID};
     try {
-      return fetch(url+"/sql", {
+      const response = await fetch(url+"/sql", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(data)
-      }).then(response => {
-        if (response.ok) {
-          $: errmsg = null;
-          return response.json();
-        } else {
-          console.error('Error:', response.status);
-          $: errmsg = 'Error: ' + response.status;
-        }
-      }).then(jsonData => {
+      });
+      if (response.ok) {
+        errmsg = null;
+        const jsonData = await response.json();
         $lineageData = jsonData;
         console.log("lineageData", lineageData);
         return jsonData; // Return the JSON data to the caller
-      })
+      } else {
+        errmsg = 'Error: ' + response.status;
+        console.error(errmsg);
+      }
     } catch (error) {
-      console.error('Error:', error);
-      $: errmsg = 'Error: ' + error;
+      errmsg = 'Error: ' + error;
+      console.error(errmsg);
     }
   }
 
   async function addTable() {
     if (newTableName) {
-      try {
-        if (csv.split("\n").length > 15) {
-          $: errmsg = "CSV too large for the visualizer to be useful.  Please limit table to 15 rows."
-          return
+      let errorMessage = null;
+      if (csv.split("\n").length > 15) {
+        errorMessage = "CSV too large for the visualizer to be useful.  Please limit table to 15 rows."
+      } else {
+        try {
+          RegisterCSV(newTableName, csv);
+          addedCSVs.push({
+            name: newTableName,
+            csv
+          });
+          newTableName = null;
+        } catch (e) {
+          errorMessage = e;
         }
-        RegisterCSV(newTableName, csv)
-        addedCSVs.push({
-          name: newTableName,
-          csv
-        })
-      } catch(e) {
-        $: errmsg = e;
       }
-      newTableName = null;
-      getSchema()
-      $: addedCSVs = addedCSVs
-    } else {
-      $: errmsg = "New table needs a name!"
+
+      addedCSVs = addedCSVs;
+      errmsg = "New table needs a name!";
     }
   }
 
   function onSQLSubmit(){
-    $: {
       getQueryLineage(q);
-    }
   }
 
   function onSelectQuery(query) {
     console.log("selected dropdown", query)
-    $: q = query
+    q = query
+  }
+
+  async function init() {
+    schemas = await getSchema();
   }
 
   onMount(() => {
-    getSchema();
+    init();
   })
 
   function reportBug(comment, email) {
@@ -169,16 +165,11 @@
   }
   textarea.editor_csv {
     width: 100%;
-    min-height: 20em;
+    min-height: 10em;
     border: 1px solid black;
   }
   textarea {
     font-family: monospace;
-  }
-  .loading {
-    text-align: center;
-    padding: 10em;
-    display: none;
   }
   .viscontainer,.errcontainer {
     margin-top: 3em;
@@ -211,6 +202,13 @@
     --bd-callout-border: rgba(var(--bs-danger-rgb), .5);
   }
 
+  .schema-list {
+  max-height: 200px; /* Adjust the desired height */
+  overflow-y: auto;
+  border: 1px solid black;
+  padding: 5px; /* Add padding for spacing */
+}
+
 </style>
 
 <Bug id="modalBug" reportBug={reportBug} />
@@ -224,8 +222,10 @@
       <h3>About</h3>
       <p>
       <strong>SQLTutor</strong> visualizes each operator in the SQL query plan.  
-      Click on an operator to visualize its input and output tables, along with their row/column dependencies (called <a href="https://arxiv.org/abs/1801.07237">data provenance</a>) .  
+      Click on an operator to visualize its input and output tables, along with their row/column dependencies
+      (called <a href="https://arxiv.org/abs/1801.07237">data provenance</a>) .  
       You can add new tables using the <mark>CSV</mark> textarea.  The CSV should include a header row.
+      
       Use <mark>&leftarrow;</mark> and <mark>&rightarrow;</mark> to visualize the prev/next operator.  </p>
 
       <p style="font-size: smaller;">
@@ -236,40 +236,45 @@
       <!--Want to help? Contact us!-->
       </p>
   </div>
-  <div class="row">
-    <div class="col-md-9">
-      <h3>Tables</h3>
-      <ul class="schema">
-        {#each schemas as [name, schema] }
-          <li><b>{name}</b>({schema})</li>
-        {/each}
-      </ul>
-    </div>
+  
 
-    <div class="col-md-3">
-      <h3>CSV 
-        <small><input bind:value={newTableName} placeholder="New Table Name"/></small> </h3>
-      <textarea class="editor_csv" id="csv" bind:this={csvEl} bind:value={csv} />
-      <button class="btn btn-primary" on:click={addTable} style="width:100%;">Add Table</button>
-    </div>
 
-  </div>
   <div class="row">
-      <h3>
-        SQL
-        <small><QueryPicker onSelect={onSelectQuery}/></small>
-      </h3>
-      <textarea class="editor_sql" id="q" bind:this={editorEl} bind:value={q} />
-      <button class="btn btn-primary" on:click={onSQLSubmit} style="width:100%;">Visualize Query</button>
+      <div class="col-md-8">
+        <h3>Tables</h3>
+        <div class="schema-list">
+          <ul class="schema">
+            {#each schemas as [name, schema] }
+              <li><b>{name}</b>({schema})</li>
+            {/each}
+          </ul>
+        </div>
+      </div>
+
+      <div class="col-md-4">
+        <h3>CSV 
+          <small><input bind:value={newTableName} placeholder="New Table Name"/></small> </h3>
+        <textarea class="editor_csv" id="csv" bind:this={csvEl} bind:value={csv} />
+        <button class="btn btn-primary" on:click={addTable} style="width:100%;">Add Table</button>
+      </div>  
   </div>
 
+
+  <div class="row">
+        <h3>
+          SQL
+          <small><QueryPicker onSelect={onSelectQuery}/></small>
+        </h3>
+        <textarea class="editor_sql" id="q" bind:this={editorEl} bind:value={q} />
+        <button class="btn btn-primary" on:click={onSQLSubmit} style="width:100%;">Visualize Query</button>
+  </div>
 
     {#if $lineageData}
     <div class="row viscontainer">
-      <div class="col-md-4" bind:this={qplanEl}>
+      <div class="col-md-6" bind:this={qplanEl}>
         <QueryPlan h={$lineageData.plan_depth*50+100}   />
       </div>
-      <div class="col-md-8">
+      <div class="col-md-4">
         <LineageDiagram opids={$selectedOpids}  />
       </div>
     </div>

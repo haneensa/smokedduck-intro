@@ -265,7 +265,7 @@ def getRowLineage(qid, plan, depth, lineage_json):
     random_values = np.sort(random_values)
     lineage_relation = lineage_relation.iloc[random_values]
     """
-    if op_name in ["HASH_JOIN", "CROSS_PRODUCT", "INDEX_JOIN", "PIECEWISE5MERGE_JOIN", "NESTED_LOOP_JOIN", "BLOCKWISE_NL_JOIN"]:
+    if op_name in ["HASH_JOIN", "CROSS_PRODUCT", "INDEX_JOIN", "PIECEWISE_MERGE_JOIN", "NESTED_LOOP_JOIN", "BLOCKWISE_NL_JOIN"]:
         lineage_lhs = [[int(row['out_index']), int(row['lhs_index'])] for index, row in lineage_relation.iterrows()]
         lineage_rhs = [[int(row['out_index']), int(row['rhs_index'])] for index, row in lineage_relation.iterrows()]
         lineage_out[plan["name"]] = [[0, lineage_lhs]]
