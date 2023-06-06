@@ -278,6 +278,24 @@ def getRowLineage(qid, plan, depth, lineage_json):
             lineage_out[plan["name"]] = [[0, lineage]]
     return lineage_out
         
+def GetDisplayName(plan):
+    opname = OperatorName(plan["name"])
+    if opname == "HASH_JOIN":
+        return "HJ"
+    elif opname == "SEQ_SCAN":
+        return plan["column_lineage"]["table_name"]
+    elif opname in ["HASH_GROUP_BY", "PERFECT_HASH_GROUP_BY"]:
+        return "GB"
+    elif opname == "PIECEWISE_MERGE_JOIN":
+        return "MJ"
+    elif opname == "SIMPLE_AGGREGATE":
+        return "agg"
+    elif opname == "ORDER_BY":
+        return "order by"
+    elif opname in ["LIMIT", "FILTER", "PROJECTION"]:
+        return opname.lower()
+    else:
+        return plan["name"].lower()
 def getInfo(qid, plan, depth, lineage_json):
     """
     return info : dict(opid : opinfo)
@@ -317,6 +335,7 @@ def getInfo(qid, plan, depth, lineage_json):
     #info["output"] = 
 
     info["id"] = opid
+    info["display_name"] = GetDisplayName(plan)
     info["depth"] = depth
     opid_number = opid.rsplit("_", 1)[-1]
     info["id_number"] = opid_number
