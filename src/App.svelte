@@ -155,9 +155,34 @@
     //addStat(sessionID, q, JSON.stringify(addedCSVs), errmsg, true, comment, email)
   }
 
+	$: cssVarStyles = `--editor-h:${$lineageData.plan_depth*50+100}px;`;
 </script>
 
 <style>
+   /* Global styles */
+  body {
+    line-height: 1.5;
+  }
+
+  /* Container styles */
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  /* Heading styles */
+  h1 {
+    font-size: 28px;
+    margin-bottom: 20px;
+  }
+
+  h3 {
+    font-size: 20px;
+    margin-bottom: 10px;
+  }
+
+  /*min-height: var(--editor-h, 30em);*/
   textarea.editor_sql {
     width: 100%;
     min-height: 10em;
@@ -169,7 +194,6 @@
     border: 1px solid black;
   }
   textarea {
-    font-family: monospace;
   }
   .viscontainer,.errcontainer {
     margin-top: 3em;
@@ -188,7 +212,6 @@
     margin-bottom: .5em;
   }
 
-
   .bd-callout {
     padding: 1.25rem;
     margin-top: 1.25rem;
@@ -203,119 +226,111 @@
   }
 
   .schema-list {
-  max-height: 200px; /* Adjust the desired height */
-  overflow-y: auto;
-  border: 1px solid black;
-  padding: 5px; /* Add padding for spacing */
-}
+    max-height: 200px; /* Adjust the desired height */
+    overflow-y: auto;
+    border: 1px solid black;
+    padding: 5px; /* Add padding for spacing */
+  }
 
 </style>
 
 <Bug id="modalBug" reportBug={reportBug} />
 
 
-<main class="container-xxl">
-  <h1>
-    SQLTutor Visualizes Query Execution <small><a href="https://github.com/cudbg/sqltutor">github</a></small>
+<main class="container-fluid">
+ <h1 class="display-4">
+  SQLTutor Visualizes Query Execution <small><a href="https://github.com/cudbg/sqltutor">GitHub</a></small>
   </h1>
+  
   <div class="row">
       <h3>About</h3>
       <p>
-      <strong>SQLTutor</strong> visualizes each operator in the SQL query plan.  
-      Click on an operator to visualize its input and output tables, along with their row/column dependencies
-      (called <a href="https://arxiv.org/abs/1801.07237">data provenance</a>) .  
-      You can add new tables using the <mark>CSV</mark> textarea.  The CSV should include a header row.
-      
-      Use <mark>&leftarrow;</mark> and <mark>&rightarrow;</mark> to visualize the prev/next operator.  </p>
+        <strong>SQLTutor</strong> visualizes each operator in the SQL query plan.
+        Click on an operator to visualize its input and output tables, along with their row/column dependencies
+        (called <a href="https://arxiv.org/abs/1801.07237">data provenance</a>).
+        You can add new tables using the <mark>CSV</mark> textarea. The CSV should include a header row.
+      </p>
 
       <p style="font-size: smaller;">
-      <!--<a target="_blank" href={`https://docs.google.com/forms/d/e/1FAIpQLSeqdk3ZqQms92iaGq5rKV6yUdnhLcRllc8igQPl1KGUwfCEUw/viewform?usp=pp_url&entry.351077705=${encodeURI(q)}&entry.1154671727=${encodeURI(csv)}&entry.1900716371=${encodeURI(errmsg)}`} class="link">Report a bug</a>. -->
-      <a href="#" class="link" data-bs-toggle="modal" data-bs-target="#modalBug">Report a bug or feature request</a>. 
-      <br/>
-      <a href="https://cudbg.github.io/sql2pandas/" class="link">Learning Pandas too?  Check out sql2pandas</a>
-      <!--Want to help? Contact us!-->
+        <!--<a target="_blank" href={`https://docs.google.com/forms/d/e/1FAIpQLSeqdk3ZqQms92iaGq5rKV6yUdnhLcRllc8igQPl1KGUwfCEUw/viewform?usp=pp_url&entry.351077705=${encodeURI(q)}&entry.1154671727=${encodeURI(csv)}&entry.1900716371=${encodeURI(errmsg)}`} class="link">Report a bug</a>. -->
+        <a href="#" class="link" data-bs-toggle="modal" data-bs-target="#modalBug">Report a bug or feature request</a>.
+        <br/>
+        <!--Want to help? Contact us!-->
       </p>
+  </div> <!-- about section -->
+
+      <div class="row">
+          <div class="col">
+            <h3>Tables</h3>
+            <div class="schema-list">
+              <ul class="schema">
+                {#each schemas as [name, schema]}
+                <li><b>{name}</b>({schema})</li>
+                {/each}
+              </ul>
+            </div> <!--schema-list-->
+          </div><!--tables column-->
+
+          <div class="col-md-4">
+            <h3>CSV
+              <small><input bind:value={newTableName} placeholder="New Table Name" /></small>
+            </h3>
+            <textarea class="editor_csv" id="csv" bind:this={csvEl} bind:value={csv}></textarea>
+            <button class="btn btn-primary" on:click={addTable} style="width:100%;">Add Table</button>
+          </div><!--CSV column-->
+      </div><!--row-->
+
+<div class="row">
+  <h3>
+    SQL
+    <small><QueryPicker onSelect={onSelectQuery} /></small>
+  </h3>
+  <textarea class="editor_sql" id="q" bind:this={editorEl} bind:value={q}  style="{cssVarStyles}"></textarea>
+  <button class="btn btn-primary" on:click={onSQLSubmit} style="width:100%;">Visualize Query</button>
+</div>
+
+{#if $lineageData}
+<div class="row viscontainer">
+  <div class="row" bind:this={qplanEl}>
+    <QueryPlan h={$lineageData.plan_depth * 50 + 100} />
   </div>
-  
 
+</div>
 
-  <div class="row">
-      <div class="col-md-8">
-        <h3>Tables</h3>
-        <div class="schema-list">
-          <ul class="schema">
-            {#each schemas as [name, schema] }
-              <li><b>{name}</b>({schema})</li>
-            {/each}
-          </ul>
-        </div>
-      </div>
-
-      <div class="col-md-4">
-        <h3>CSV 
-          <small><input bind:value={newTableName} placeholder="New Table Name"/></small> </h3>
-        <textarea class="editor_csv" id="csv" bind:this={csvEl} bind:value={csv} />
-        <button class="btn btn-primary" on:click={addTable} style="width:100%;">Add Table</button>
-      </div>  
-  </div>
-
-
-  <div class="row">
-        <h3>
-          SQL
-          <small><QueryPicker onSelect={onSelectQuery}/></small>
-        </h3>
-        <textarea class="editor_sql" id="q" bind:this={editorEl} bind:value={q} />
-        <button class="btn btn-primary" on:click={onSQLSubmit} style="width:100%;">Visualize Query</button>
-  </div>
-
-    {#if $lineageData}
-    <div class="row viscontainer">
-      <div class="col-md-6" bind:this={qplanEl}>
-        <QueryPlan h={$lineageData.plan_depth*50+100}   />
-      </div>
-      <div class="col-md-4">
-        <LineageDiagram opids={$selectedOpids}  />
-      </div>
-    </div>
-    {/if}
-    {#if errmsg}
-    <div class="row errcontainer">
-      <div class="col-md-12">
-        <div class="bd-callout bd-callout-danger" role="alert">
-          <h3>
-            Could Not Parse Query <small>
-              <!--<a target="_blank" href={`https://docs.google.com/forms/d/e/1FAIpQLSeqdk3ZqQms92iaGq5rKV6yUdnhLcRllc8igQPl1KGUwfCEUw/viewform?usp=pp_url&entry.351077705=${encodeURI(q)}&entry.1154671727=${encodeURI(csv)}&entry.1900716371=${encodeURI(errmsg)}`} class="link">report bug</a>-->
-              <a href="#" data-bs-toggle="modal" data-bs-target="#modalBug">report bug</a>
-            </small>
-          </h3>
-          <pre>{errmsg}</pre>
-        </div>
-      </div>
-    </div>
-    {/if}
-
-
-  <div class="row footer" style="margin-top: 3em;">
-    <div class="col-md-8 offset-md-2 text-center" style="border-top: 1px solid grey;">
-      <p style="font-size:smaller;">
-      See <a href="https://github.com/cudbg/sqltutor">github repo</a> for code.   
-      Implemented using 
-        <a href="">DuckDB version x</a>
-        and table vis from <a href="https://pandastutor.com/">pandastutor</a>.
-      </p>
-
-      <p style="font-size:smaller;">
-      Privacy Policy: By using SQLTutor, your queries, csvs, user interactions, and IP address are logged and may be analyzed for research purposes. Nearly all web services collect this basic information from users in their server logs. SQLTutor does not collect any personally identifiable information from its users. 
-      </p>
-
-
+<div class="row viscontainer">
+    <LineageDiagram opids={$selectedOpids} />
+</div>
+{/if}
+{#if errmsg}
+<div class="row errcontainer">
+  <div class="col">
+    <div class="bd-callout bd-callout-danger" role="alert">
+      <h3>
+        Could Not Parse Query
+        <small>
+          <!--<a target="_blank" href={`https://docs.google.com/forms/d/e/1FAIpQLSeqdk3ZqQms92iaGq5rKV6yUdnhLcRllc8igQPl1KGUwfCEUw/viewform?usp=pp_url&entry.351077705=${encodeURI(q)}&entry.1154671727=${encodeURI(csv)}&entry.1900716371=${encodeURI(errmsg)}`} class="link">report bug</a>-->
+          <a href="#" data-bs-toggle="modal" data-bs-target="#modalBug">report bug</a>
+        </small>
+      </h3>
+      <pre>{errmsg}</pre>
     </div>
   </div>
+</div>
+{/if}
 
+<div class="row footer" style="margin-top: 3em;">
+  <div class="col-md-8 offset-md-2 text-center" style="border-top: 1px solid grey;">
+    <p style="font-size:smaller;">
+      See <a href="https://github.com/cudbg/sqltutor">github repo</a> for code.
+      Implemented using
+      <a href="">DuckDB version x</a>
+      and table vis from <a href="https://pandastutor.com/">pandastutor</a>.
+    </p>
 
-
-
+    <p style="font-size:smaller;">
+      Privacy Policy: By using SQLTutor, your queries, CSVs, user interactions, and IP address are logged and may be
+      analyzed for research purposes
+      </p>
+    </div>
+  </div>
 </main>
-
-

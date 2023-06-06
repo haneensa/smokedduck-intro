@@ -123,7 +123,7 @@
     // adds the circle to the node
     circles = node.append("text")
         //.attr("r", 10)
-        .text((d) => info[d.data.id].name)
+        .text((d) => info[d.data.id].display_name)
         .style("text-anchor", "middle")
         .attr("role", "button")
         .on("click", async function() {
@@ -169,12 +169,11 @@
 
 
 <div bind:clientWidth={clientWidth}>
-  <h2>
+  <h3>
     Query Plan
     <button class="btn btn-sm btn-outline-primary" on:click={() => step(-1)}>prev (&leftarrow;)</button>
     <button class="btn btn-sm btn-outline-primary" on:click={() => step(1)}>next (&rightarrow;)</button>
-
-  </h2>
+  </h3>
 <!--<button id="visualizeButton" type="button" on:click={onClick}>Visualize Entire Query Plan</button>-->
 <!--pre class="prequery"><code class="queryText">{$lineageData.qstr}</code></pre-->
 <svg id="qPlanTreeSVG"  bind:this={svgEl}>
