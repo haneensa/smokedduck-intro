@@ -1,17 +1,19 @@
 <script lang="ts">
 
+
   import { tick, onMount } from "svelte"
   import QueryPlan from "./QueryPlan.svelte"
   import LineageDiagram from "./LineageDiagram.svelte"
   import QueryPicker from "./QueryPicker.svelte"
   import Bug from "./Bug.svelte"
   import * as initial_lineage from "./assets/lineage.json"
-  import { lineageData, selectedOpids } from "./stores.ts"
+  import { initDuckDB, lineageData, selectedOpids } from "./stores.ts"
   import {generateUUID} from "./guid"
+
   const sessionID = generateUUID()
 
   $lineageData = initial_lineage;
-
+  let conn = null;
   let msgEl = document.getElementById("msg");
   let queryParams = new URLSearchParams(window.location.search)
   const url = 'http://127.0.0.1:5000';
@@ -35,89 +37,17 @@
 8,3,0,0,c,18,c
 9,4,1,0,d,20,d`;
 
-  async function getSchema() {
-    try {
-      const response = await fetch(url+"/schema", {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({"client_id": sessionID})
-      });
-      if (response.ok) {
-        errmsg = null;
-        const jsonData = await response.json();
-        console.log("schema", jsonData);
-        return jsonData;
-      } else {
-        console.error("Error:", response.status);
-        errmsg = "Error: " + response.status;
-      }
-    } catch (error) {
-      errmsg = "Error: " + error;
-      console.error(errmsg);
-    }
-  }
-  
-  async function RegisterCSV(table_name, csv) {
-    const data = {'name': table_name, 'csv':csv, "client_id": sessionID};
-    try {
-      const response = await fetch(url+"/csv", {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-
-      if (response.ok) {
-        errmsg = null;
-        schemas = await getSchema();
-      } else {
-          errmsg = 'Error: ' + response.status;
-          console.error(errmsg);
-      }
-    } catch (error) {
-      errmsg = 'Error: ' + error;
-      console.log(errmsg);
-      console.error(errmsg);
-    }
-  }
-
-  async function getQueryLineage(q) {
-    const data = {'query': q, "client_id" : sessionID};
-    try {
-      const response = await fetch(url+"/sql", {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-      if (response.ok) {
-        errmsg = null;
-        const jsonData = await response.json();
-        $lineageData = jsonData;
-        console.log("lineageData", lineageData);
-        return jsonData; // Return the JSON data to the caller
-      } else {
-        errmsg = 'Error: ' + response.status;
-        console.error(errmsg);
-      }
-    } catch (error) {
-      errmsg = 'Error: ' + error;
-      console.error(errmsg);
-    }
-  }
-
   async function addTable() {
+    if (conn == null) return;
+
     if (newTableName) {
       let errorMessage = null;
       if (csv.split("\n").length > 15) {
         errorMessage = "CSV too large for the visualizer to be useful.  Please limit table to 15 rows."
       } else {
         try {
-          RegisterCSV(newTableName, csv);
+          //RegisterCSV(newTableName, csv);
+          console.log("Register Table:", newTableName, csv);
           addedCSVs.push({
             name: newTableName,
             csv
@@ -134,7 +64,9 @@
   }
 
   function onSQLSubmit(){
-      getQueryLineage(q);
+      // run q 
+      //$lineageData = jsonData;
+      //console.log("lineageData", lineageData);
   }
 
   function onSelectQuery(query) {
@@ -143,7 +75,27 @@
   }
 
   async function init() {
-    schemas = await getSchema();
+    console.log("InitDuckDB Start")
+    conn = await initDuckDB();
+    console.log("InitDuckDB End")
+    const res =  await conn.query<{ v: arrow.Int32 }>(`
+    SELECT * FROM generate_series(1, 100) t(v)`);
+    console.log("res: ", res)
+    const tables = await conn.query(`pragma show_tables`);
+    console.log("elements: ", tables);
+    const elements = await tables.toArray();
+    console.log("elements: ", elements);
+    for (const [index, element] of elements.entries()) {
+      const table_name = element["name"];
+      console.log(`Index: ${index}, Element: ${element}, Name: ${table_name}`);
+      let schemas_temp = [];
+      const tables_info = await conn.query(`pragma table_info(${table_name})`);
+      console.log(tables_info.toArray().map((row) => row.toJSON()));
+      schemas_temp.push(table_name, "schema");
+      schemas = schemas_temp;
+      console.log("S", schemas);
+    }
+    await conn.query(`pragma enable_lineage`);
   }
 
   onMount(() => {

@@ -1,12 +1,14 @@
 {
-  "name": "sqltutor-demo",
+  "name": "@duckdb/duckdb-wasm-examples-SQLStepper",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "copyfiles": "node ./bundle.mjs",
     "build": "vite build",
+    "dev": "vite",
     "preview": "vite preview",
+    "host": "vite --host",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "deploy": "npx gh-pages -d dist"
   },
@@ -22,6 +24,7 @@
     "vite": "^3.1.4"
   },
   "dependencies": {
+    "@duckdb/duckdb-wasm": "file:../../packages/duckdb-wasm",
     "d3": "^7.6.1",
     "init": "^0.1.2",
     "ramda": "^0.28.0"
