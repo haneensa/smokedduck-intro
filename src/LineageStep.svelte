@@ -14,22 +14,24 @@
   import { selectedOpids, lineageData } from "./stores.ts"
 
   const functions = {
-    PROJECTION: projection,
     HASH_JOIN: join,
     PIECEWISE_MERGE_JOIN: join,
     BLOCKWISE_NL_JOIN: join,
     NESTED_LOOP_JOIN: join,
     DELIM_JOIN: join,
+    CROSS_PRODUCT: join,
     ThetaJoin: join,
     HASH_GROUP_BY: groupby,
     PERFECT_HASH_GROUP_BY: groupby,
-    SIMPLE_AGGREGATE: simple,
+    UNGROUPED_AGGREGATE: simple,
     FILTER: filter,
     LIMIT: filter,
+    STREAMING_LIMIT: filter,
     ORDER_BY: filter,
     SEQ_SCAN: scan,
     CHUNK_SCAN: scan,
     DELIM_SCAN: scan,
+    PROJECTION: projection,
     root: query
   }
 
@@ -39,7 +41,7 @@
   let info = {},
     addOns = {},
     setupFunction = () => "";
-  console.log("lineageStep setup", $lineageData)
+    console.log("lineageStep setup", $lineageData)
 
   $: {
     info = $lineageData.info[opid] ?? {}

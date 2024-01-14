@@ -8,30 +8,6 @@ import numpy as np
 import json
 import re
 
-def runQuery(con, q, qname):
-    json_fname = "{}.json".format(qname)
-    con.execute("PRAGMA enable_profiling = 'json';")
-    con.execute("PRAGMA profiling_output = '{}';".format(json_fname))
-
-    con.execute("PRAGMA trace_lineage = 'ON';")
-    con.execute("PRAGMA intermediate_tables = 'ON';")
-    df = con.execute(q).fetchdf() 
-    con.execute("PRAGMA intermediate_tables = 'OFF';")
-    con.execute("PRAGMA trace_lineage = 'OFF';")
-    con.execute("PRAGMA disable_profiling;")
-    qid_df = con.execute("SELECT max(query_id) as latest_qid FROM duckdb_queries_list() WHERE query=?", [q]).fetchdf()
-    qid = qid_df['latest_qid'][0]
-    
-    # read query plan file
-    with open(json_fname, 'r') as f:
-        plan = json.load(f)
-    return df, qid, plan
-
-
-# get column mapping for each operator to filter intermediates
-def OperatorName(name):
-    return "_".join(name.split("_")[:-1])
-    
 def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
     """
     return operator level column lineage:
@@ -96,7 +72,9 @@ def getColumnLevelLineage(qid : int, plan : dict, parent : dict):
         # if we can propagate alias from children, then do that
         if "alias" in plan["children"][0]["column_lineage"]:
             child_col_lineage = plan["children"][0]["column_lineage"]["alias"]
-            results["alias"] = [ child_col_lineage[int(x[1:])]  if (x.startswith("#") and len(child_col_lineage) > int(x[1:])) else x for x in results["alias"] ]
+            results["alias"] = [ child_col_lineage[int(x[1:])]  
+            if (x.startswith("#") and len(child_col_lineage) > int(x[1:])) 
+            else x for x in results["alias"] ]
         results["str"] += " Cols: [{}].".format(', '.join(results["alias"]))
 
     elif op_name in ["HASH_GROUP_BY", "PERFECT_HASH_GROUP_BY"]:
@@ -386,7 +364,8 @@ def getResults(qid, plan, depth, lineage_json):
         else:
             alias = col_names
         
-        res[plan["name"]] = {"rows": base_rows, "columns": alias, "cardinality" : len(base)}
+        res[plan["name"]] = {"rows": base_rows,
+                "columns": alias, "cardinality" : len(base)}
         
     return res
 

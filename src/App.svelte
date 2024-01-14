@@ -3,6 +3,7 @@
 
   import { tick, onMount } from "svelte"
   import QueryPlan from "./QueryPlan.svelte"
+  import { ExtractLineage } from "./annotate.ts"
   import LineageDiagram from "./LineageDiagram.svelte"
   import QueryPicker from "./QueryPicker.svelte"
   import Bug from "./Bug.svelte"
@@ -70,22 +71,18 @@
           errorMessage = e;
         }
       }
-
       addedCSVs = addedCSVs;
+    } else {
       errmsg = "New table needs a name!";
     }
-  }
-
-  async function extractLineage(qid, plan) {
-    // traverse plan
-    // extract info: col info, lineage, intermediate data, etc.
-    return {};
   }
 
   async function onSQLSubmit(){
       // run q 
       await conn.query(`pragma enable_lineage`);
+      await conn.query(`pragma enable_intermediate_tables`);
       const res = await conn.query(q);
+      await conn.query(`pragma disable_intermediate_tables`);
       await conn.query(`pragma disable_lineage`);
       console.log(res);
       // Prepare query
@@ -105,11 +102,21 @@
       try {
         const plan = JSON.parse(plan_string);
         console.log(plan);
-        $lineageData = await extractLineage(qid, plan);
+        $lineageData = await ExtractLineage(conn, q, qid, plan);
       } catch (error) {
           console.error('Error parsing Plan JSON:', error);
       }
-  
+      
+      const tables = await conn.query(`pragma show_tables`);
+      for (const [index, element] of tables.toArray().entries()) {
+        const table_name = element["name"];
+        if (table_name.substring(0, 7) == "LINEAGE") {
+          console.log(`Drop Index: ${index}, Element: ${element}, Name: ${table_name}`);
+          await conn.query(`drop table ${table_name}`);
+        }
+      }
+      
+      await conn.query(`pragma clear_lineage`);
       
   }
 
@@ -120,14 +127,12 @@
     let schemas_temp = [];
     for (const [index, element] of elements.entries()) {
       const table_name = element["name"];
-      console.log(`Index: ${index}, Element: ${element}, Name: ${table_name}`);
       const tables_info = await conn.query(`pragma table_info(${table_name})`);
       let schema_str = "";
       for (const [j, e] of tables_info.toArray().entries()) {
         if (j != 0) {
           schema_str += `, `;
         }
-        console.log(`Index: ${j}, Element: ${e}`);
         schema_str += `${e["name"]}:${e["type"]}`
       }
       schemas_temp.push([table_name, schema_str]);
@@ -158,17 +163,6 @@
 
 <style>
    /* Global styles */
-  body {
-    line-height: 1.5;
-  }
-
-  /* Container styles */
-  .container {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 20px;
-  }
-
   /* Heading styles */
   h1 {
     font-size: 28px;
@@ -250,7 +244,6 @@
       </p>
 
       <p style="font-size: smaller;">
-        <!--<a target="_blank" href={`https://docs.google.com/forms/d/e/1FAIpQLSeqdk3ZqQms92iaGq5rKV6yUdnhLcRllc8igQPl1KGUwfCEUw/viewform?usp=pp_url&entry.351077705=${encodeURI(q)}&entry.1154671727=${encodeURI(csv)}&entry.1900716371=${encodeURI(errmsg)}`} class="link">Report a bug</a>. -->
         <a href="#" class="link" data-bs-toggle="modal" data-bs-target="#modalBug">Report a bug or feature request</a>.
         <br/>
         <!--Want to help? Contact us!-->
@@ -305,7 +298,6 @@
       <h3>
         Could Not Parse Query
         <small>
-          <!--<a target="_blank" href={`https://docs.google.com/forms/d/e/1FAIpQLSeqdk3ZqQms92iaGq5rKV6yUdnhLcRllc8igQPl1KGUwfCEUw/viewform?usp=pp_url&entry.351077705=${encodeURI(q)}&entry.1154671727=${encodeURI(csv)}&entry.1900716371=${encodeURI(errmsg)}`} class="link">report bug</a>-->
           <a href="#" data-bs-toggle="modal" data-bs-target="#modalBug">report bug</a>
         </small>
       </h3>
@@ -320,7 +312,7 @@
     <p style="font-size:smaller;">
       See <a href="https://github.com/cudbg/sqltutor">github repo</a> for code.
       Implemented using
-      <a href="">DuckDB version x</a>
+      <a href="https://github.com/cudbg/smokedduck">DuckDB version x</a>
       and table vis from <a href="https://pandastutor.com/">pandastutor</a>.
     </p>
 

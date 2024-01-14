@@ -3,9 +3,6 @@
 
   export let lineageData = {};
 
-
-
-
 </script>
 
 <div class="row">
