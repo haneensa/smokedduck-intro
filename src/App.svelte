@@ -9,11 +9,13 @@
   import * as initial_lineage from "./assets/lineage.json"
   import { initDuckDB, lineageData, selectedOpids } from "./stores.ts"
   import {generateUUID} from "./guid"
+  import * as arrow from 'apache-arrow';
 
   const sessionID = generateUUID()
 
   $lineageData = initial_lineage;
   let conn = null;
+  let db = null;
   let msgEl = document.getElementById("msg");
   let queryParams = new URLSearchParams(window.location.search)
   const url = 'http://127.0.0.1:5000';
@@ -38,7 +40,8 @@
 9,4,1,0,d,20,d`;
 
   async function addTable() {
-    if (conn == null) return;
+    console.log("addTable", conn, db);
+    if (conn == null || db == null) return;
 
     if (newTableName) {
       let errorMessage = null;
@@ -46,8 +49,18 @@
         errorMessage = "CSV too large for the visualizer to be useful.  Please limit table to 15 rows."
       } else {
         try {
-          //RegisterCSV(newTableName, csv);
           console.log("Register Table:", newTableName, csv);
+          await db.registerFileText(`data.csv`, csv);
+          await conn.insertCSVFromPath('data.csv', {
+            schema: 'main',
+            name: `${newTableName}`,
+            detect: true,
+            header: true,
+            delimiter: ','
+            });
+      
+          await updateTablesList();
+
           addedCSVs.push({
             name: newTableName,
             csv
@@ -63,39 +76,72 @@
     }
   }
 
-  function onSQLSubmit(){
-      // run q 
-      //$lineageData = jsonData;
-      //console.log("lineageData", lineageData);
+  async function extractLineage(qid, plan) {
+    // traverse plan
+    // extract info: col info, lineage, intermediate data, etc.
+    return {};
   }
 
-  function onSelectQuery(query) {
-    console.log("selected dropdown", query)
-    q = query
+  async function onSQLSubmit(){
+      // run q 
+      await conn.query(`pragma enable_lineage`);
+      const res = await conn.query(q);
+      await conn.query(`pragma disable_lineage`);
+      console.log(res);
+      // Prepare query
+      const stmt = await conn.prepare<{ v: arrow.string }>(
+        `select query_id, plan from duckdb_queries_list() where query = ? order by query_id desc limit 1`
+      );
+      // ... and run the query with materialized results
+      const metadata = await stmt.query<{ c1: arrow.Int, c2: arrow.string }>(q);
+      const elements = await metadata.toArray().map((row) => row.toJSON());
+      if (elements.length == 0) {
+        console.log("Something is wrong in duckdb_queries_list ..", elements);
+        return;
+      }
+      let plan_string = elements[0]["plan"];
+      let qid = elements[0]["query_id"];
+      console.log(plan_string, qid);
+      try {
+        const plan = JSON.parse(plan_string);
+        console.log(plan);
+        $lineageData = await extractLineage(qid, plan);
+      } catch (error) {
+          console.error('Error parsing Plan JSON:', error);
+      }
+  
+      
+  }
+
+  async function updateTablesList() {
+    if (conn == null || db == null) return;
+    const tables = await conn.query(`pragma show_tables`);
+    const elements = await tables.toArray();
+    let schemas_temp = [];
+    for (const [index, element] of elements.entries()) {
+      const table_name = element["name"];
+      console.log(`Index: ${index}, Element: ${element}, Name: ${table_name}`);
+      const tables_info = await conn.query(`pragma table_info(${table_name})`);
+      let schema_str = "";
+      for (const [j, e] of tables_info.toArray().entries()) {
+        if (j != 0) {
+          schema_str += `, `;
+        }
+        console.log(`Index: ${j}, Element: ${e}`);
+        schema_str += `${e["name"]}:${e["type"]}`
+      }
+      schemas_temp.push([table_name, schema_str]);
+    }
+    schemas = schemas_temp;
   }
 
   async function init() {
     console.log("InitDuckDB Start")
-    conn = await initDuckDB();
+    let res  = await initDuckDB();
+    db = res[0];
+    conn = res[1];
     console.log("InitDuckDB End")
-    const res =  await conn.query<{ v: arrow.Int32 }>(`
-    SELECT * FROM generate_series(1, 100) t(v)`);
-    console.log("res: ", res)
-    const tables = await conn.query(`pragma show_tables`);
-    console.log("elements: ", tables);
-    const elements = await tables.toArray();
-    console.log("elements: ", elements);
-    for (const [index, element] of elements.entries()) {
-      const table_name = element["name"];
-      console.log(`Index: ${index}, Element: ${element}, Name: ${table_name}`);
-      let schemas_temp = [];
-      const tables_info = await conn.query(`pragma table_info(${table_name})`);
-      console.log(tables_info.toArray().map((row) => row.toJSON()));
-      schemas_temp.push(table_name, "schema");
-      schemas = schemas_temp;
-      console.log("S", schemas);
-    }
-    await conn.query(`pragma enable_lineage`);
+    updateTablesList();
   }
 
   onMount(() => {
@@ -235,7 +281,6 @@
 <div class="row">
   <h3>
     SQL
-    <small><QueryPicker onSelect={onSelectQuery} /></small>
   </h3>
   <textarea class="editor_sql" id="q" bind:this={editorEl} bind:value={q}  style="{cssVarStyles}"></textarea>
   <button class="btn btn-primary" on:click={onSQLSubmit} style="width:100%;">Visualize Query</button>

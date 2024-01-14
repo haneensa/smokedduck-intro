@@ -13,6 +13,7 @@
     "deploy": "npx gh-pages -d dist"
   },
   "devDependencies": {
+    "apache-arrow": "^14.0.1",
     "@sveltejs/vite-plugin-svelte": "^1.0.8",
     "@tsconfig/svelte": "^3.0.0",
     "gh-pages": "^4.0.0",
