@@ -31,9 +31,40 @@ export async function initDuckDB() {
         await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
 
         let conn = await db.connect();
-        await conn.query(`CREATE TABLE t1(i INTEGER, j INTEGER);`);
-        const schema = await conn.query(`pragma show_tables`);
-        console.log("Schema: ", schema)
+        
+        let customers_csv =
+        `cid,name
+      1,Alice
+      2,Bob
+      3,Ellen`;
+        
+      let sales_csv =
+        `oid,cid,amount
+      101,1,50
+      102,1,30
+      103,2,25
+      104,3,40
+      105,3,15`;
+
+        await db.registerFileText(`data.csv`, customers_csv);
+        await conn.insertCSVFromPath('data.csv', {
+          schema: 'main',
+          name: `customers`,
+          detect: true,
+          header: true,
+          delimiter: ','
+          });
+        
+      await db.registerFileText(`data.csv`, sales_csv);
+        await conn.insertCSVFromPath('data.csv', {
+          schema: 'main',
+          name: `sales`,
+          detect: true,
+          header: true,
+          delimiter: ','
+          });
+      
+
         return [db, conn];
     } catch (e) {
         console.error(e);

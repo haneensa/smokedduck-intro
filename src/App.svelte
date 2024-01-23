@@ -27,7 +27,7 @@
   let newTableName;
   let schemas = [];
   let addedCSVs = [];
-  let q = queryParams.get("q") ?? ``;
+  let q = queryParams.get("q") ?? `SELECT cid, name, sum(amount) FROM customers JOIN sales USING (cid) GROUP BY cid, name ORDER BY cid`;
   let csv = `a,b,c,d,e,f,g
 0,0,0,0,a,2,c
 1,1,1,0,b,4,d
