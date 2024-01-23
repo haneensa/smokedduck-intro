@@ -3,12 +3,12 @@
 <img src="https://github.com/cudbg/sqltutor/raw/main/screenshot.png" style="width:100%"></img>
 
 
-[Svelte-based SQL visualizer](https://cudbg.github.io/sqltutor).  
+[Svelte-based SQL visualizer](https://haneensa.github.io/sqltutor).  
 
 Built on top of
 
 * [svelte](https://svelte.dev)
-* [Databass](https://github.com/w6113/databass-public) query compilation database engine, extended with cutting-edge [provenance instrumentation techniques](https://arxiv.org/abs/1801.07237) 
+* [SmokedDuck](https://github.com/cudbg/smokedduck) an extension of DuckDB, extended with cutting-edge [provenance instrumentation techniques](https://dl.acm.org/doi/abs/10.1145/3555041.3589731?casa_token=19Ke3CqDM6QAAAAA:pEJpJjX7CwDA8NMaEn41Uj_8ac72lepMlVZ_8lrkt-q3rgkG-xYht4UReTWjtkImmyxpGVYKhduu) compiled into [Wasm](https://github.com/duckdb/duckdb-wasm) module.
 * Table visualizer from [pandastutor](https://pandastutor.com/)
 
 Develop and Run
@@ -19,12 +19,9 @@ Develop and Run
 
 # Future Features
 
-* [ ] support for subqueries
-* [ ] support for `count(*)`
-* [ ] show schemas in interface
+* [ ] support for multithreading
 * [ ] example list of prewritten queries
 * [ ] track usage statistics
-* [ ] add new tables
 
 # Specification for lineage data 
 
@@ -85,13 +82,3 @@ Lineage: {
 
 
 ```
-
-Setting up the flask server w/ SmokedDuck:
-1. Create a new virtual environment `python3 -m venv venvDemo`
-2. Access it with `source venvDemo/bin/activate`
-3. Install python dependencies with `pip install -r requirements.txt` - after this only SmokedDuck needs to be installed
-4. Pull https://github.com/reallocf/duckdb into a new directory and enter it
-5. Check out the branch `lineage_capture`
-6. Enter the python build directory with `cd tools/pythonpkg`
-7. Execute `python setup.py install`
-8. Now, from the root of this directory, you can run the backend with `flask --app app run`

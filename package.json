@@ -1,5 +1,5 @@
 {
-  "name": "@duckdb/duckdb-wasm-examples-SQLStepper",
+  "name": "@duckdb/duckdb-wasm-examples-sqltutor",
   "private": true,
   "version": "0.0.0",
   "type": "module",
