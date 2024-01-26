@@ -13,9 +13,10 @@
     "deploy": "npx gh-pages -d dist"
   },
   "devDependencies": {
-    "apache-arrow": "^14.0.1",
     "@sveltejs/vite-plugin-svelte": "^1.0.8",
     "@tsconfig/svelte": "^3.0.0",
+    "apache-arrow": "^14.0.1",
+    "convex": "^1.8.0",
     "gh-pages": "^4.0.0",
     "svelte": "^3.49.0",
     "svelte-check": "^2.8.1",
@@ -26,7 +27,9 @@
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "file:../../packages/duckdb-wasm",
+    "@duckdb/duckdb-wasm-examples-sqltutor": "file:",
     "d3": "^7.6.1",
+    "dotenv": "^16.4.1",
     "init": "^0.1.2",
     "ramda": "^0.28.0"
   }

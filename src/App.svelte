@@ -11,6 +11,12 @@
   import { initDuckDB, lineageData, selectedOpids } from "./stores.ts"
   import {generateUUID} from "./guid"
   import * as arrow from 'apache-arrow';
+  
+  import { ConvexHttpClient } from "convex/browser";
+  import { api } from "../convex/_generated/api.js";
+  
+  const client = new ConvexHttpClient(import.meta.env.VITE_CONVEX_URL);
+  window.client = client;
 
   const sessionID = generateUUID()
 
@@ -27,6 +33,7 @@
   let newTableName;
   let schemas = [];
   let addedCSVs = [];
+  let queries_log = []
   let q = queryParams.get("q") ?? `SELECT cid, name, sum(amount) FROM customers JOIN sales USING (cid) GROUP BY cid, name ORDER BY cid`;
   let csv = `a,b,c,d,e,f,g
 0,0,0,0,a,2,c
@@ -78,6 +85,9 @@
   }
 
   async function onSQLSubmit(){
+      queries_log.push(q);
+      client.mutation(api.stats.sendstats, {sessionID: sessionID,
+                                        q: q});
       // run q 
       await conn.query(`pragma enable_lineage`);
       await conn.query(`pragma enable_intermediate_tables`);
@@ -154,8 +164,10 @@
   })
 
   function reportBug(comment, email) {
-    // TODO: send bug to backend
-    //addStat(sessionID, q, JSON.stringify(addedCSVs), errmsg, true, comment, email)
+    client.mutation(api.stats.sendbug, {sessionID: sessionID,
+                                        query_log: JSON.stringify(queries_log),
+                                        csv: JSON.stringify(addedCSVs),
+                                        comment: comment, email: email});
   }
 
 	$: cssVarStyles = `--editor-h:${$lineageData.plan_depth*50+100}px;`;
@@ -231,7 +243,7 @@
 
 <main class="container-fluid">
  <h1 class="display-4">
-  SQLTutor Visualizes Query Execution <small><a href="https://github.com/cudbg/sqltutor">GitHub</a></small>
+  SQLTutor Visualizes Query Execution <small><a href="https://github.com/haneensa/sqltutor">GitHub</a></small>
   </h1>
   
   <div class="row">
@@ -239,7 +251,7 @@
       <p>
         <strong>SQLTutor</strong> visualizes each operator in the SQL query plan.
         Click on an operator to visualize its input and output tables, along with their row/column dependencies
-        (called <a href="https://arxiv.org/abs/1801.07237">data provenance</a>).
+        (called <a href="https://dl.acm.org/doi/abs/10.1145/3555041.3589731?casa_token=19Ke3CqDM6QAAAAA:pEJpJjX7CwDA8NMaEn41Uj_8ac72lepMlVZ_8lrkt-q3rgkG-xYht4UReTWjtkImmyxpGVYKhduu">data provenance</a>).
         You can add new tables using the <mark>CSV</mark> textarea. The CSV should include a header row.
       </p>
 
@@ -310,9 +322,9 @@
 <div class="row footer" style="margin-top: 3em;">
   <div class="col-md-8 offset-md-2 text-center" style="border-top: 1px solid grey;">
     <p style="font-size:smaller;">
-      See <a href="https://github.com/cudbg/sqltutor">github repo</a> for code.
+      See <a href="https://github.com/haneensa/sqltutor">github repo</a> for code.
       Implemented using
-      <a href="https://github.com/cudbg/smokedduck">DuckDB version x</a>
+      <a href="https://github.com/cudbg/smokedduck">DuckDB version v0.9.2</a>
       and table vis from <a href="https://pandastutor.com/">pandastutor</a>.
     </p>
 

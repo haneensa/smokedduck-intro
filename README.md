@@ -11,11 +11,18 @@ Built on top of
 * [SmokedDuck](https://github.com/cudbg/smokedduck) an extension of DuckDB, extended with cutting-edge [provenance instrumentation techniques](https://dl.acm.org/doi/abs/10.1145/3555041.3589731?casa_token=19Ke3CqDM6QAAAAA:pEJpJjX7CwDA8NMaEn41Uj_8ac72lepMlVZ_8lrkt-q3rgkG-xYht4UReTWjtkImmyxpGVYKhduu) compiled into [Wasm](https://github.com/duckdb/duckdb-wasm) module.
 * Table visualizer from [pandastutor](https://pandastutor.com/)
 
+
+
 Develop and Run
 
     npm install .
+    npx convex dev
     npm run dev
 
+If there's issues with convex
+
+    npx convex init
+    npx convex reinit --help
 
 # Future Features
 
