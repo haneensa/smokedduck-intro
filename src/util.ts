@@ -143,8 +143,8 @@ export function join(opid, lineageData, addOns) {
   console.log("join", opid, rhsObj)
   addOns.desc = "matches up tuples of both tables based on condition: " + info.str
   addOns.opType = "joinOp"
-  addOns.tableCaptions.lhs = lineageData.info[lchild_opid].name
-  addOns.tableCaptions.lhs2 = lineageData.info[rchild_opid].name
+  addOns.tableCaptions.lhs = lineageData.info[lchild_opid].table_name
+  addOns.tableCaptions.lhs2 = lineageData.info[rchild_opid].table_name
 
   let annotations = []
 
